@@ -1,0 +1,49 @@
+version: "3.8"
+
+# Docker Compose pour lancer Kestra localement.
+# Commande : docker compose up -d
+# UI Kestra : http://localhost:8080
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  kestra:
+    image: kestra/kestra:latest
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driverClassName: org.postgresql.Driver
+            username: kestra
+            password: kestra
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              basePath: /app/storage
+    volumes:
+      - kestra_data:/app/storage
+      - ./kestra/flows:/app/flows
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+      - ./duckdb:/app/duckdb
+
+volumes:
+  postgres_data:
+  kestra_data:

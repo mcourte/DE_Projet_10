@@ -1,0 +1,28 @@
+id: transformation
+namespace: bottlerock
+
+# Sous-flow : nettoyage, dedoublonnage, calcul du CA.
+
+description: Transformation des donnees et calcul des agregats
+
+tasks:
+  - id: dedoublonnage
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    description: Supprime les doublons (cible 621 lignes commandes)
+    sql: |
+      -- TODO : voir scripts/sql/02_ca_premium.sql
+
+  - id: ca_premium
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    sql: |
+      -- TODO : voir scripts/sql/02_ca_premium.sql
+
+  - id: ca_ordinary
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    sql: |
+      -- TODO : voir scripts/sql/03_ca_ordinary.sql
+
+  - id: ca_total
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    sql: |
+      -- TODO : voir scripts/sql/04_ca_total.sql

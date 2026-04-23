@@ -1,0 +1,30 @@
+# Donnees (ne jamais versionner les fichiers sources / DB)
+data/raw/**/*
+!data/raw/.gitkeep
+data/processed/**/*
+!data/processed/.gitkeep
+data/rejected/**/*
+!data/rejected/.gitkeep
+duckdb/*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kestra local
+kestra_data/
+
+# Claude
+.claude/
+CLAUDE.md

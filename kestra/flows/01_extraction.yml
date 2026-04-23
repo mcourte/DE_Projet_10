@@ -1,0 +1,23 @@
+id: extraction
+namespace: bottlerock
+
+# Sous-flow : identifie les fichiers sources et les classe premium/ordinary.
+
+description: Extraction des fichiers sources des 7 systemes ERP
+
+tasks:
+  - id: identifier_fichiers
+    type: io.kestra.plugin.scripts.python.Script
+    description: Identifie si un fichier contient des clients premium ou ordinary
+    beforeCommands:
+      - pip install pandas openpyxl
+    script: |
+      # TODO : appeler scripts/python/identify_clients.py
+      pass
+
+  - id: charger_raw
+    type: io.kestra.plugin.scripts.python.Script
+    description: Charge les fichiers bruts dans DuckDB (table staging)
+    script: |
+      # TODO : appeler scripts/python/load_to_duckdb.py
+      pass

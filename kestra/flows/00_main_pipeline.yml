@@ -1,0 +1,33 @@
+id: main_pipeline
+namespace: bottlerock
+
+# Pipeline principal : enchaine extraction -> transformation -> tests.
+# Declenche automatiquement tous les 10 jours entre 10h et 15h.
+
+description: |
+  Orchestration complete du pipeline BottleRock :
+  1. Extraction des fichiers sources (CSV, Excel, TXT)
+  2. Transformation et chargement DuckDB
+  3. Tests de qualite des donnees
+
+tasks:
+  - id: extraction
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: bottlerock
+    flowId: extraction
+
+  - id: transformation
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: bottlerock
+    flowId: transformation
+
+  - id: tests
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: bottlerock
+    flowId: tests
+
+triggers:
+  - id: schedule_10_jours
+    type: io.kestra.plugin.core.trigger.Schedule
+    # Tous les 10 du mois a 10h (a ajuster selon la politique reelle)
+    cron: "0 10 */10 * *"

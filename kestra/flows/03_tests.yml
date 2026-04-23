@@ -1,0 +1,36 @@
+id: tests
+namespace: bottlerock
+
+# Sous-flow : tests de qualite.
+# Chiffres cibles annonces par Stephane :
+#   - 621 lignes apres dedoublonnage
+#   - 1428 lignes apres nettoyage
+#   - 74 lignes ventes
+#   - CA total ~= 70 000 000 EUR
+#   - 3 references uniques
+
+description: Tests de qualite sur les donnees chargees
+
+tasks:
+  - id: test_completude
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    description: Verifie qu'aucune colonne critique n'a de NULL
+    sql: |
+      -- TODO : voir scripts/sql/tests/test_completude.sql
+
+  - id: test_coherence
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    description: Verifie que CA_premium + CA_ordinary = CA_total
+    sql: |
+      -- TODO : voir scripts/sql/tests/test_coherence.sql
+
+  - id: test_types
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    description: Verifie les types (dates, numeriques)
+    sql: |
+      -- TODO : voir scripts/sql/tests/test_types.sql
+
+  - id: test_plage_dates
+    type: io.kestra.plugin.jdbc.duckdb.Query
+    sql: |
+      -- TODO : voir scripts/sql/tests/test_plage_dates.sql
