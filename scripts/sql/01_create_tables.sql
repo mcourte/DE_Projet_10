@@ -1,28 +1,44 @@
--- Creation des tables cibles dans DuckDB.
+-- Creation des tables DuckDB pour BottleNeck.
+-- Note : en pratique les tables sont creees dynamiquement par
+-- load_to_duckdb.write_table(... mode='replace'). Ce script est conserve
+-- a titre documentaire / pour un usage manuel via la CLI duckdb.
 
--- Table clients (consolidee premium + ordinary)
-CREATE TABLE IF NOT EXISTS clients (
-    client_id    VARCHAR PRIMARY KEY,
-    nom          VARCHAR,
-    email        VARCHAR,
-    segment      VARCHAR CHECK (segment IN ('premium', 'ordinary'))
-    -- TODO : completer selon les fichiers sources
+-- Table ERP nettoyee
+CREATE TABLE IF NOT EXISTS erp_clean (
+    product_id      INTEGER,
+    onsale_web      INTEGER,
+    price           DECIMAL(10, 2),
+    stock_quantity  INTEGER,
+    stock_status    VARCHAR
 );
 
--- Table commandes
-CREATE TABLE IF NOT EXISTS commandes (
-    commande_id  VARCHAR PRIMARY KEY,
-    client_id    VARCHAR REFERENCES clients(client_id),
-    date_cmd     DATE,
-    montant      DECIMAL(12, 2)
-    -- TODO
+-- Table WEB nettoyee (filtree post_type=product, post_status=publish)
+CREATE TABLE IF NOT EXISTS web_clean (
+    sku             VARCHAR,
+    post_title      VARCHAR,
+    total_sales     DECIMAL(10, 2),
+    post_date       TIMESTAMP,
+    post_status     VARCHAR,
+    post_type       VARCHAR
 );
 
--- Table ventes / produits
-CREATE TABLE IF NOT EXISTS ventes (
-    vente_id     VARCHAR PRIMARY KEY,
-    reference    VARCHAR,
-    quantite     INTEGER,
-    prix_unit    DECIMAL(10, 2)
-    -- TODO
+-- Table de liaison
+CREATE TABLE IF NOT EXISTS liaison_clean (
+    product_id      INTEGER,
+    id_web          VARCHAR
+);
+
+-- Table consolidee (apres jointures et classification)
+CREATE TABLE IF NOT EXISTS produits_consolides (
+    product_id          INTEGER,
+    id_web              VARCHAR,
+    sku                 VARCHAR,
+    post_title          VARCHAR,
+    price               DECIMAL(10, 2),
+    stock_quantity      INTEGER,
+    stock_status        VARCHAR,
+    total_sales         DECIMAL(10, 2),
+    post_date           TIMESTAMP,
+    segment             VARCHAR,
+    segment_threshold   DECIMAL(10, 2)
 );

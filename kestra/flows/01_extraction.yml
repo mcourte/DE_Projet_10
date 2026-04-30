@@ -1,23 +1,58 @@
 id: extraction
-namespace: bottlerock
+namespace: bottleneck
 
-# Sous-flow : identifie les fichiers sources et les classe premium/ordinary.
+# Sous-flow d'extraction des 3 fichiers Excel BottleNeck.
+# Suivi d'une tache de test de volumetrie.
 
-description: Extraction des fichiers sources des 7 systemes ERP
+description: |
+  Lit les 3 fichiers sources :
+    - Fichier_erp.xlsx     (cible : 825 lignes)
+    - Fichier_web.xlsx     (cible : 1513 lignes)
+    - fichier_liaison.xlsx (cible : 825 lignes)
+
+  Charge en RAM via pandas. Les eventuels fichiers illisibles sont
+  deplaces vers data/rejected/ par le script Python.
 
 tasks:
-  - id: identifier_fichiers
-    type: io.kestra.plugin.scripts.python.Script
-    description: Identifie si un fichier contient des clients premium ou ordinary
+  - id: extract_sources
+    type: io.kestra.plugin.scripts.python.Commands
+    description: Extraction des fichiers sources via extract_files.py
+    namespaceFiles:
+      enabled: true
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
     beforeCommands:
-      - pip install pandas openpyxl
-    script: |
-      # TODO : appeler scripts/python/identify_clients.py
-      pass
+      - pip install -q pandas openpyxl
+    commands:
+      - python -m scripts.python.extract_files
+    retry:
+      type: exponential
+      maxAttempt: 3
+      interval: PT10S
 
-  - id: charger_raw
+  - id: test_extraction_volumetrie
     type: io.kestra.plugin.scripts.python.Script
-    description: Charge les fichiers bruts dans DuckDB (table staging)
+    description: Verifie la volumetrie des sources extraites (TEST)
+    namespaceFiles:
+      enabled: true
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    beforeCommands:
+      - pip install -q pandas openpyxl
     script: |
-      # TODO : appeler scripts/python/load_to_duckdb.py
-      pass
+      import sys
+      sys.path.insert(0, '.')
+      from scripts.python.extract_files import read_bottleneck_sources
+
+      sources = read_bottleneck_sources()
+      assert len(sources['erp']) == 825, f"ERP : attendu 825, recu {len(sources['erp'])}"
+      assert len(sources['web']) == 1513, f"WEB : attendu 1513, recu {len(sources['web'])}"
+      assert len(sources['liaison']) == 825, f"LIAISON : attendu 825, recu {len(sources['liaison'])}"
+      print("[TEST] Volumetrie extraction OK")
+
+errors:
+  - id: move_to_rejected
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      Echec extraction. Verifier les fichiers dans data/raw/bottleneck/.
+      Execution : {{ execution.id }}

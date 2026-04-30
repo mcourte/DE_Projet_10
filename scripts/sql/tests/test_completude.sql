@@ -1,7 +1,10 @@
--- Test de completude : aucune colonne critique ne doit etre NULL.
+-- Test de completude.
+-- Aucune ligne ne doit avoir un prix ou un sku NULL apres consolidation.
 -- Retourne le nombre de lignes invalides. Doit etre = 0.
-
 SELECT
-    -- TODO : COUNT(*) WHERE client_id IS NULL OR ...
-    NULL AS nb_lignes_invalides
-;
+    COUNT(*) AS nb_lignes_invalides
+FROM produits_consolides
+WHERE price IS NULL
+   OR sku IS NULL
+   OR sku = ''
+   OR product_id IS NULL;

@@ -1,7 +1,5 @@
--- Chiffre d'affaires total.
--- Cible attendue : ~70 000 000 EUR.
-
+-- CA total (tous segments confondus).
+-- Cible : ~70 568 EUR sur le dataset BottleNeck.
 SELECT
-    -- TODO : SUM(montant) global
-    NULL AS ca_total
-;
+    COALESCE(SUM(price * total_sales), 0) AS ca_total
+FROM produits_consolides;
