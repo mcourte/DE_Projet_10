@@ -116,7 +116,6 @@ python -m pytest tests/ -m integration
 
 ```
 DE_Projet_10/
-├── CLAUDE.md                        ← contexte projet (Claude Code)
 ├── README.md                        ← ce fichier
 ├── docker-compose.yml               ← Kestra + PostgreSQL
 ├── requirements.txt
@@ -156,5 +155,4 @@ DE_Projet_10/
 └── docs/
     ├── journal_de_bord.md
     ├── architecture/data_lineage.md
-    └── presentation/soutenance.md
 ```
