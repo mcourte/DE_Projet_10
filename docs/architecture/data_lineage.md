@@ -21,6 +21,3 @@ dans ce dossier.
 - Tables DuckDB : `clients`, `commandes`, `ventes`
 - Rapports CSV/Excel pour Stéphane
 
-## Ressources
-
-- [Five Features That Help You to Draw Better Diagrams](https://betterprogramming.pub/five-features-that-help-you-to-draw-better-diagrams-1ee0d50b7b2a)

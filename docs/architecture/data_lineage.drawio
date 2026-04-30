@@ -1,0 +1,249 @@
+<mxfile host="app.diagrams.net" modified="2026-04-30T10:00:00.000Z" agent="Claude" version="22.0.0">
+  <diagram name="Architecture BottleNeck" id="bottleneck-arch">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0" background="#1a1a1a">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ========== GROUPES (zones pointillees) ========== -->
+        <mxCell id="g_sources" value="SOURCES (Donnees brutes)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;dashed=1;fontColor=#FFFFFF;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="280" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="g_workflow" value="WORKFLOW KESTRA (Orchestration DuckDB / Python)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;dashed=1;fontColor=#FFFFFF;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="360" y="40" width="800" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="g_livrables" value="LIVRABLES" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;dashed=1;fontColor=#FFFFFF;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="40" width="360" height="900" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== SOURCES ========== -->
+        <mxCell id="src_erp" value="Fichier_erp.xlsx&#xa;&#xa;825 lignes&#xa;product_id, price, stock" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1f3a5f;strokeColor=#4a90d9;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="src_liaison" value="fichier_liaison.xlsx&#xa;&#xa;825 lignes&#xa;Table de jointure ERP &#x21D4; Web" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1f3a5f;strokeColor=#4a90d9;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="80" y="250" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="src_web" value="Fichier_web.xlsx&#xa;&#xa;1513 lignes&#xa;CMS WooCommerce&#xa;sku, post_title, total_sales" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1f3a5f;strokeColor=#4a90d9;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="80" y="400" width="200" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Cron trigger -->
+        <mxCell id="cron" value="PLANIFICATION KESTRA&#xa;&#xa;Cron : 0 9 15 * *&#xa;Le 15 de chaque mois a 9h00&#xa;Timezone : Europe/Paris" style="ellipse;whiteSpace=wrap;html=1;fillColor=#3a3a3a;strokeColor=#FFFFFF;fontColor=#FFFFFF;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="780" width="240" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== TACHES + TESTS ========== -->
+
+        <!-- TACHE 1 : Extraction -->
+        <mxCell id="t1" value="TACHE 1 : Extraction&#xa;(Python pandas)&#xa;&#xa;Lecture des 3 Excel" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c3a00;strokeColor=#ffaa00;fontColor=#FFFFFF;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="100" width="220" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- TACHE 2 : Nettoyage -->
+        <mxCell id="t2" value="TACHE 2 : Nettoyage + Dedoublonnage&#xa;(Python pandas)&#xa;&#xa;ERP : dedup product_id (825)&#xa;LIAISON : dedup product_id (825)&#xa;WEB : drop sku NaN (1428) puis dedup sku (714)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c3a00;strokeColor=#ffaa00;fontColor=#FFFFFF;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="200" width="280" height="100" as="geometry"/>
+        </mxCell>
+        <!-- TEST 1 : doublons -->
+        <mxCell id="test1" value="TEST 1&#xa;Aucun doublon&#xa;(SQL)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#5c0000;strokeColor=#ff5555;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="200" width="120" height="80" as="geometry"/>
+        </mxCell>
+        <!-- TEST 2 : valeurs manquantes -->
+        <mxCell id="test2" value="TEST 2&#xa;Aucune valeur&#xa;manquante (SQL)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#5c0000;strokeColor=#ff5555;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="870" y="200" width="120" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- TACHE 3 : Fusion -->
+        <mxCell id="t3" value="TACHE 3 : Fusion / Jointure&#xa;(Python pandas + SQL DuckDB)&#xa;&#xa;ERP &#x22C8; LIAISON &#x22C8; WEB&#xa;via product_id puis id_web=sku" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c3a00;strokeColor=#ffaa00;fontColor=#FFFFFF;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="340" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <!-- TEST 3 : volumetrie jointure -->
+        <mxCell id="test3" value="TEST 3&#xa;Volumetrie jointure&#xa;= 714 produits" style="rhombus;whiteSpace=wrap;html=1;fillColor=#5c0000;strokeColor=#ff5555;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="345" width="140" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- TACHE 4 : Classification Z-score -->
+        <mxCell id="t4" value="TACHE 4 : Identification Vins Millesimes&#xa;(Python NumPy)&#xa;&#xa;Z-score sur prix &gt; 1.96&#xa;Seuil = mean + 1.96 &#xD7; std" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#3a1f5c;strokeColor=#aa66ff;fontColor=#FFFFFF;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="470" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <!-- TEST 5 : coherence z-score -->
+        <mxCell id="test5" value="TEST 5&#xa;Coherence Z-score&#xa;30 millesimes&#xa;684 ordinaires" style="rhombus;whiteSpace=wrap;html=1;fillColor=#5c0000;strokeColor=#ff5555;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="475" width="140" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- TACHE 5 : Calcul CA -->
+        <mxCell id="t5" value="TACHE 5 : Calcul du Chiffre d'Affaires&#xa;(SQL DuckDB)&#xa;&#xa;CA produit = price &#xD7; total_sales&#xa;CA total = SUM(CA produit)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c3a00;strokeColor=#ffaa00;fontColor=#FFFFFF;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="600" width="280" height="90" as="geometry"/>
+        </mxCell>
+        <!-- TEST 4 : coherence CA -->
+        <mxCell id="test4" value="TEST 4&#xa;Coherence CA&#xa;= 70 568.60 EUR" style="rhombus;whiteSpace=wrap;html=1;fillColor=#5c0000;strokeColor=#ff5555;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="605" width="140" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- TACHE 6 : Extraction livrables -->
+        <mxCell id="t6" value="TACHE 6 : Extraction des livrables&#xa;(Python openpyxl + pandas to_csv)&#xa;&#xa;1 fichier Excel + 2 fichiers CSV" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c3a00;strokeColor=#ffaa00;fontColor=#FFFFFF;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="730" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- DuckDB : entrepot central -->
+        <mxCell id="duckdb" value="DuckDB&#xa;(bottlerock.db)&#xa;&#xa;Tables :&#xa;- erp_clean&#xa;- web_clean&#xa;- liaison_clean&#xa;- produits_consolides" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#1a4a1a;strokeColor=#66cc66;fontColor=#FFFFFF;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="900" y="600" width="180" height="180" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== LIVRABLES ========== -->
+        <mxCell id="liv_xlsx" value="Rapport_CA.xlsx&#xa;&#xa;Onglet 1 : CA par produit&#xa;Onglet 2 : CA total&#xa;(70 568.60 EUR)" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1a4a1a;strokeColor=#66cc66;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="200" width="280" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="liv_premium" value="vins_millesimes.csv&#xa;&#xa;30 vins (z-score > 1.96)&#xa;Separateur ; - UTF-8" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1a4a1a;strokeColor=#66cc66;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="350" width="280" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="liv_ordinary" value="vins_ordinaires.csv&#xa;&#xa;684 vins (z-score &#x2264; 1.96)&#xa;Separateur ; - UTF-8" style="shape=note;whiteSpace=wrap;html=1;fillColor=#1a4a1a;strokeColor=#66cc66;fontColor=#FFFFFF;fontSize=11;align=center;size=18;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="500" width="280" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Tolerance aux pannes -->
+        <mxCell id="errbox" value="TOLERANCE AUX PANNES&#xa;&#xa;1. Retry 3x backoff exponentiel&#xa;   (1s, 5s, 15s)&#xa;2. Fallback CSV si DuckDB KO&#xa;   -> data/processed/_fallback/&#xa;3. Echec test -> flow en erreur,&#xa;   run precedent intact&#xa;4. Source corrompue -> rejected/" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#5c2e00;strokeColor=#ff8800;fontColor=#FFFFFF;fontSize=10;align=left;dashed=1;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="660" width="320" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== FLECHES ========== -->
+
+        <!-- Cron -> Tache 1 (declenchement) -->
+        <mxCell id="e_cron_t1" style="endArrow=classic;html=1;dashed=1;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;curved=1;" edge="1" parent="1" source="cron" target="t1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="135"/>
+              <mxPoint x="380" y="135"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_cron_lbl" value="Declenche" style="text;html=1;fontColor=#FFFFFF;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="240" y="115" width="80" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- Sources -> Tache 1 -->
+        <mxCell id="e_erp_t1" style="endArrow=classic;html=1;strokeColor=#FFFFFF;" edge="1" parent="1" source="src_erp" target="t1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_liaison_t1" style="endArrow=classic;html=1;strokeColor=#FFFFFF;" edge="1" parent="1" source="src_liaison" target="t1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_web_t1" style="endArrow=classic;html=1;strokeColor=#FFFFFF;" edge="1" parent="1" source="src_web" target="t1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- T1 -> T2 -->
+        <mxCell id="e_t1_t2" style="endArrow=classic;html=1;strokeColor=#FFFFFF;" edge="1" parent="1" source="t1" target="t2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- T2 -> Test1 et Test2 -->
+        <mxCell id="e_t2_test1" style="endArrow=classic;html=1;strokeColor=#ff5555;" edge="1" parent="1" source="t2" target="test1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_test1_test2" style="endArrow=classic;html=1;strokeColor=#ff5555;" edge="1" parent="1" source="test1" target="test2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Test2 -> T3 (validation OK) -->
+        <mxCell id="e_test2_t3" style="endArrow=classic;html=1;strokeColor=#66cc66;curved=1;" edge="1" parent="1" source="test2" target="t3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="930" y="320"/>
+              <mxPoint x="540" y="320"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_test2_lbl" value="OK" style="text;html=1;fontColor=#66cc66;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="295" width="40" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- T3 -> Test3 -->
+        <mxCell id="e_t3_test3" style="endArrow=classic;html=1;strokeColor=#ff5555;" edge="1" parent="1" source="t3" target="test3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Test3 -> T4 (validation OK) -->
+        <mxCell id="e_test3_t4" style="endArrow=classic;html=1;strokeColor=#66cc66;curved=1;" edge="1" parent="1" source="test3" target="t4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="450"/>
+              <mxPoint x="540" y="450"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_test3_lbl" value="OK" style="text;html=1;fontColor=#66cc66;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="425" width="40" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- T4 -> Test5 -->
+        <mxCell id="e_t4_test5" style="endArrow=classic;html=1;strokeColor=#ff5555;" edge="1" parent="1" source="t4" target="test5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Test5 -> T5 (validation OK) -->
+        <mxCell id="e_test5_t5" style="endArrow=classic;html=1;strokeColor=#66cc66;curved=1;" edge="1" parent="1" source="test5" target="t5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="580"/>
+              <mxPoint x="540" y="580"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_test5_lbl" value="OK" style="text;html=1;fontColor=#66cc66;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="555" width="40" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- T5 -> Test4 -->
+        <mxCell id="e_t5_test4" style="endArrow=classic;html=1;strokeColor=#ff5555;" edge="1" parent="1" source="t5" target="test4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Test4 -> T6 (validation OK) -->
+        <mxCell id="e_test4_t6" style="endArrow=classic;html=1;strokeColor=#66cc66;curved=1;" edge="1" parent="1" source="test4" target="t6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="710"/>
+              <mxPoint x="540" y="710"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_test4_lbl" value="OK" style="text;html=1;fontColor=#66cc66;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="685" width="40" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- T2/T3/T4/T5 -> DuckDB (persistance) -->
+        <mxCell id="e_t3_duck" style="endArrow=classic;html=1;dashed=1;strokeColor=#66cc66;curved=1;" edge="1" parent="1" source="t3" target="duckdb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="385"/>
+              <mxPoint x="990" y="600"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_duck_lbl" value="Persistance" style="text;html=1;fontColor=#66cc66;fontSize=9;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="480" width="80" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- T6 -> livrables -->
+        <mxCell id="e_t6_xlsx" style="endArrow=classic;html=1;strokeColor=#66cc66;" edge="1" parent="1" source="t6" target="liv_xlsx">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_t6_premium" style="endArrow=classic;html=1;strokeColor=#66cc66;" edge="1" parent="1" source="t6" target="liv_premium">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_t6_ordinary" style="endArrow=classic;html=1;strokeColor=#66cc66;" edge="1" parent="1" source="t6" target="liv_ordinary">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Tests -> errbox (echec -> tolerance) -->
+        <mxCell id="e_test_err" style="endArrow=classic;html=1;dashed=1;strokeColor=#ff8800;curved=1;" edge="1" parent="1" source="test4" target="errbox">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_err_lbl" value="Si KO" style="text;html=1;fontColor=#ff8800;fontSize=9;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="900" y="660" width="60" height="20" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
