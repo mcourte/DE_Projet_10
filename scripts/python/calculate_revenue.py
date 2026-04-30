@@ -40,7 +40,7 @@ def revenue_per_product(
     price_column: str = "price",
     sales_column: str = "total_sales",
 ) -> pd.DataFrame:
-    """Retourne le CA par produit, tri decroissant.
+    """Retourne le CA par produit, trié décroissant.
 
     Colonnes de sortie :
         sku, post_title, price, total_sales, ca
