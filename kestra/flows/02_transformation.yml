@@ -9,10 +9,10 @@ description: |
   Pipeline de transformation BottleNeck.
 
   Cibles attendues :
-    - WEB nettoye : 714 lignes (filtre post_type/status + dedup sku)
+    - WEB nettoye : 714 lignes (drop sku NaN -> 1428, puis dedup sku -> 714)
     - Jointure ERP/LIAISON/WEB : 714 produits
-    - Classification : ~32 premium, ~682 ordinary (methode IQR sur prix)
-    - CA total : ~70 568 EUR
+    - Classification : 30 premium, 684 ordinary (methode Z-score > 1.96 sur prix)
+    - CA total : 70 568.60 EUR
     - Rapport Excel : data/processed/rapport_BottleNeck_YYYY-MM.xlsx
 
 tasks:
