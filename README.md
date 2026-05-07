@@ -71,7 +71,23 @@ env\Scripts\activate.bat
 pip install -r requirements.txt
 ```
 
-### Étape 5 — Placer les fichiers sources
+### Étape 5 — Créer le fichier `.env`
+
+Copier `.env.example` en `.env` (le `.env` est ignoré par git, il peut contenir
+des secrets sans risque) :
+
+```bash
+# Linux / Mac OS
+cp .env.example .env
+
+# Windows
+copy .env.example .env
+```
+
+Adapter les valeurs si besoin (par défaut le pipeline pointe sur
+`duckdb/bottlerock.db` et Kestra sur `http://localhost:8080`).
+
+### Étape 6 — Placer les fichiers sources
 
 Copier les trois fichiers Excel dans le dossier `data/raw/bottleneck/` :
 
@@ -82,7 +98,7 @@ data/raw/bottleneck/
 └── fichier_liaison.xlsx
 ```
 
-### Étape 6 — Lancer le pipeline
+### Étape 7 — Lancer le pipeline
 
 **Option A — Pipeline local (sans Docker, recommandé pour tester rapidement)**
 
@@ -107,7 +123,7 @@ docker compose up -d
 
 > **Prérequis Option B** : [Docker Desktop](https://www.docker.com/products/docker-desktop/) installé et démarré.
 
-### Étape 7 — Vérifier les résultats
+### Étape 8 — Vérifier les résultats
 
 ```bash
 # Lancer tous les tests (39)
@@ -169,8 +185,16 @@ timezone: Europe/Paris
 
 ## Tests pytest
 
+39 tests répartis en 3 catégories :
+
+| Catégorie | Nb | Description |
+|---|---:|---|
+| Unitaires | 26 | Logique des fonctions sur fixtures synthétiques (rapides, indépendants des données réelles) |
+| `@pytest.mark.cibles` | 8 | Vérifient les chiffres exacts de Stéphane sur le dataset BottleNeck |
+| `@pytest.mark.integration` | 5 | Tests post-pipeline qui interrogent les tables DuckDB |
+
 ```bash
-# Tous les tests (39 = 23 unitaires + 8 cibles + 4 intégration + 4 SQL)
+# Tous les tests (39)
 python -m pytest tests/ -v
 
 # Uniquement unitaires (rapides, pas de fichiers réels)
@@ -182,6 +206,10 @@ python -m pytest tests/ -m cibles
 # Vérifier l'intégrité DuckDB après pipeline
 python -m pytest tests/ -m integration
 ```
+
+À cela s'ajoutent **8 tests SQL** exécutés par le flow Kestra `03_tests.yml` :
+`test_doublons`, `test_completude`, `test_volumetrie_jointure`, `test_ca`,
+`test_zscore`, `test_coherence`, `test_types`, `test_plage_dates`.
 
 ## Chiffres de référence (validés)
 
@@ -225,18 +253,28 @@ DE_Projet_10/
 │   │   ├── load_to_duckdb.py        ← retry + fallback CSV
 │   │   └── run_pipeline.py          ← orchestrateur local
 │   └── sql/
-│       ├── 01_create_tables.sql
-│       ├── 02_ca_premium.sql
-│       ├── 03_ca_ordinary.sql
-│       ├── 04_ca_total.sql
+│       ├── 01_create_tables.sql     ← schémas (documentaire)
+│       ├── 02_ca_premium.sql        ← CA des vins millésimés
+│       ├── 03_ca_ordinary.sql       ← CA des vins ordinaires
+│       ├── 04_ca_total.sql          ← CA total
 │       └── tests/
-│           ├── test_completude.sql
-│           ├── test_coherence.sql
-│           ├── test_types.sql
-│           └── test_plage_dates.sql
+│           ├── test_doublons.sql           ← test 1/5
+│           ├── test_completude.sql         ← test 2/5
+│           ├── test_volumetrie_jointure.sql ← test 3/5
+│           ├── test_ca.sql                 ← test 4/5
+│           ├── test_zscore.sql             ← test 5/5
+│           ├── test_coherence.sql          ← bonus
+│           ├── test_types.sql              ← bonus
+│           └── test_plage_dates.sql        ← bonus
 ├── tests/
 │   └── test_pipeline.py             ← 39 tests pytest
+├── .env.example                     ← gabarit des variables d'environnement
 └── docs/
-    ├── journal_de_bord.md
-    ├── architecture/data_lineage.md
+    ├── journal_de_bord.md           ← démarche, choix techniques, difficultés
+    ├── architecture/
+    │   ├── data_lineage.md          ← documentation détaillée du lineage
+    │   ├── data_lineage.drawio      ← diagramme source (éditable)
+    │   └── data_lineage.drawio.png  ← export visuel
+    └── presentation/
+        └── soutenance.md            ← support de soutenance orale
 ```
