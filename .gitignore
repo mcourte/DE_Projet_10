@@ -25,6 +25,11 @@ Thumbs.db
 # Kestra local
 kestra_data/
 
+# Variables d'environnement (peuvent contenir des secrets)
+.env
+.env.local
+!.env.example
+
 # Claude
 .claude/
 CLAUDE.md
