@@ -1,39 +1,34 @@
 id: tests
 namespace: bottleneck
-
-# Sous-flow de tests SQL globaux executes apres la transformation.
-# Couvre les 5 categories de tests imposees par le brief OpenClassrooms :
-#   1. Absence de doublons
-#   2. Absence de valeurs manquantes (completude)
-#   3. Coherence de la volumetrie apres jointures
-#   4. Coherence du chiffre d'affaires calcule
-#   5. Coherence de la volumetrie millesimes/ordinaires avec le z-score
-
 description: |
   Tests SQL finaux sur les tables DuckDB produites par le pipeline.
-
-  Si l'un de ces tests retourne une valeur > 0 (sauf coherence ou |ecart| > 0.01),
-  le flow echoue et le pipeline est marque en erreur.
+  Couvre les 5 categories de tests imposees par le brief OpenClassrooms :
+    1. Absence de doublons
+    2. Absence de valeurs manquantes (completude)
+    3. Coherence de la volumetrie apres jointures
+    4. Coherence du chiffre d'affaires calcule
+    5. Coherence de la volumetrie millesimes/ordinaires avec le z-score
 
 tasks:
-
   # --- Test 1 : Absence de doublons ----------------------------------------
   - id: test_doublons
     type: io.kestra.plugin.scripts.python.Script
     description: TEST 1/5 - Aucun doublon sur les cles primaires
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_doublons.sql', encoding='utf-8').read()
-      result = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_doublons.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          result = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert result == 0, f"doublons detectes : {result}"
       print("[TEST 1/5] Doublons OK (0)")
 
@@ -41,19 +36,21 @@ tasks:
   - id: test_completude
     type: io.kestra.plugin.scripts.python.Script
     description: TEST 2/5 - Aucune valeur manquante sur colonnes critiques
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_completude.sql', encoding='utf-8').read()
-      result = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_completude.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          result = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert result == 0, f"valeurs manquantes : {result}"
       print("[TEST 2/5] Completude OK (0)")
 
@@ -61,19 +58,21 @@ tasks:
   - id: test_volumetrie_jointure
     type: io.kestra.plugin.scripts.python.Script
     description: TEST 3/5 - Volumetrie apres jointures = 714 produits
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_volumetrie_jointure.sql', encoding='utf-8').read()
-      ecart = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_volumetrie_jointure.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          ecart = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert ecart == 0, f"volumetrie hors cible : ecart = {ecart}"
       print("[TEST 3/5] Volumetrie jointure OK (714 produits)")
 
@@ -81,19 +80,21 @@ tasks:
   - id: test_ca
     type: io.kestra.plugin.scripts.python.Script
     description: TEST 4/5 - CA total = 70 568.60 EUR
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_ca.sql', encoding='utf-8').read()
-      ecart = float(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_ca.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          ecart = float(query(sql, conn=conn).iloc[0, 0])
+          
       assert ecart < 1.0, f"CA hors cible : ecart = {ecart} EUR"
       print(f"[TEST 4/5] CA total OK (ecart = {ecart} EUR)")
 
@@ -101,19 +102,21 @@ tasks:
   - id: test_zscore
     type: io.kestra.plugin.scripts.python.Script
     description: TEST 5/5 - Coherence classification z-score (30 / 684)
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_zscore.sql', encoding='utf-8').read()
-      violations = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_zscore.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          violations = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert violations == 0, f"violations z-score detectees : {violations}"
       print("[TEST 5/5] Z-score OK (30 millesimes / 684 ordinaires)")
 
@@ -121,37 +124,41 @@ tasks:
   - id: test_types
     type: io.kestra.plugin.scripts.python.Script
     description: TEST bonus - TRY_CAST sur price et stock_quantity
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_types.sql', encoding='utf-8').read()
-      result = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_types.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          result = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert result == 0, f"erreurs de cast : {result}"
       print("[TEST bonus] Types OK")
 
   - id: test_plage_dates
     type: io.kestra.plugin.scripts.python.Script
     description: TEST bonus - post_date dans la plage [2018-01-01, today]
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      sql = open('scripts/sql/tests/test_plage_dates.sql', encoding='utf-8').read()
-      result = int(query(sql).iloc[0, 0])
+      sql = open('/app/scripts/sql/tests/test_plage_dates.sql', encoding='utf-8').read()
+      with get_connection() as conn:
+          result = int(query(sql, conn=conn).iloc[0, 0])
+          
       assert result == 0, f"dates hors plage : {result}"
       print("[TEST bonus] Plage dates OK")

@@ -1,13 +1,7 @@
 id: transformation
 namespace: bottleneck
-
-# Sous-flow de transformation : nettoyage -> jointure -> classification ->
-# CA -> persistance DuckDB -> rapport Excel.
-# Chaque etape de transformation est suivie d'une tache de test.
-
 description: |
   Pipeline de transformation BottleNeck.
-
   Cibles attendues :
     - WEB nettoye : 714 lignes (drop sku NaN -> 1428, puis dedup sku -> 714)
     - Jointure ERP/LIAISON/WEB : 714 produits
@@ -16,19 +10,19 @@ description: |
     - Rapport Excel : data/processed/rapport_BottleNeck_YYYY-MM.xlsx
 
 tasks:
-
   # --- ETAPE 1 : Nettoyage + test
   - id: clean_data
     type: io.kestra.plugin.scripts.python.Script
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl duckdb
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      
       from scripts.python.extract_files import read_bottleneck_sources
       from scripts.python.clean_data import clean_erp, clean_web, clean_liaison
       from scripts.python.load_to_duckdb import get_connection, write_table
@@ -42,28 +36,27 @@ tasks:
           write_table(erp, 'erp_clean', conn=conn)
           write_table(web, 'web_clean', conn=conn)
           write_table(liaison, 'liaison_clean', conn=conn)
-    retry:
-      type: exponential
-      maxAttempt: 3
-      interval: PT10S
 
   - id: test_clean_data
     type: io.kestra.plugin.scripts.python.Script
     description: TEST - volumetries cibles ERP=825, LIAISON=825, WEB dedup=714
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      n_erp     = query("SELECT COUNT(*) AS n FROM erp_clean").iloc[0]['n']
-      n_liaison = query("SELECT COUNT(*) AS n FROM liaison_clean").iloc[0]['n']
-      n_web     = query("SELECT COUNT(*) AS n FROM web_clean").iloc[0]['n']
+      # On force l'utilisation de la connexion persistante (fichier .db)
+      with get_connection() as conn:
+          n_erp     = query("SELECT COUNT(*) AS n FROM erp_clean", conn=conn).iloc[0]['n']
+          n_liaison = query("SELECT COUNT(*) AS n FROM liaison_clean", conn=conn).iloc[0]['n']
+          n_web     = query("SELECT COUNT(*) AS n FROM web_clean", conn=conn).iloc[0]['n']
+          
       assert n_erp == 825,     f"ERP : attendu 825, recu {n_erp}"
       assert n_liaison == 825, f"LIAISON : attendu 825, recu {n_liaison}"
       assert n_web == 714,     f"WEB dedup : attendu 714, recu {n_web}"
@@ -72,15 +65,15 @@ tasks:
   # --- ETAPE 2 : Jointure + test
   - id: join_sources
     type: io.kestra.plugin.scripts.python.Script
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl duckdb
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
       from scripts.python.join_data import join_sources
       from scripts.python.load_to_duckdb import get_connection, query, write_table
 
@@ -94,37 +87,40 @@ tasks:
       type: exponential
       maxAttempt: 3
       interval: PT10S
+      maxInterval: PT5M
 
   - id: test_join_sources
     type: io.kestra.plugin.scripts.python.Script
     description: TEST - jointure produit 714 lignes
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      n = query("SELECT COUNT(*) AS n FROM produits_joints").iloc[0]['n']
+      with get_connection() as conn:
+          n = query("SELECT COUNT(*) AS n FROM produits_joints", conn=conn).iloc[0]['n']
+          
       assert n == 714, f"Jointure : attendu 714, recu {n}"
       print(f"[TEST] Jointure OK ({n} produits consolides)")
 
   # --- ETAPE 3 : Classification + test
   - id: classify_wines
     type: io.kestra.plugin.scripts.python.Script
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas duckdb numpy
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
       from scripts.python.identify_wines import classify_wines
       from scripts.python.load_to_duckdb import get_connection, query, write_table
 
@@ -136,35 +132,39 @@ tasks:
       type: exponential
       maxAttempt: 3
       interval: PT10S
+      maxInterval: PT5M
 
   - id: test_classify_wines
     type: io.kestra.plugin.scripts.python.Script
     description: TEST - 30 vins millesimes + 684 ordinaires + CA total = 70 568.60 EUR
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
-      - pip install -q duckdb
+      - pip install -q duckdb pandas
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
-      from scripts.python.load_to_duckdb import query
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      df = query("""
-          SELECT segment, COUNT(*) AS n
-          FROM produits_consolides
-          GROUP BY segment
-      """)
+      with get_connection() as conn:
+          df = query("""
+              SELECT segment, COUNT(*) AS n
+              FROM produits_consolides
+              GROUP BY segment
+          """, conn=conn)
+          
+          ca = float(query(
+              "SELECT SUM(price * total_sales) AS ca FROM produits_consolides", conn=conn
+          ).iloc[0]['ca'])
+          
       counts = dict(zip(df['segment'], df['n']))
       n_premium = counts.get('premium', 0)
       n_ordinary = counts.get('ordinary', 0)
+      
       assert n_premium == 30,   f"Vins millesimes : attendu 30, recu {n_premium}"
       assert n_ordinary == 684, f"Vins ordinaires : attendu 684, recu {n_ordinary}"
-
-      ca = float(query(
-          "SELECT SUM(price * total_sales) AS ca FROM produits_consolides"
-      ).iloc[0]['ca'])
       assert abs(ca - 70_568.60) < 1.0, f"CA total : attendu 70 568.60, recu {ca:.2f}"
       print(f"[TEST] Classification OK ({n_premium} millesimes / {n_ordinary} ordinaires, CA = {ca:.2f} EUR)")
 
@@ -172,41 +172,43 @@ tasks:
   - id: generate_report
     type: io.kestra.plugin.scripts.python.Script
     description: Generation du rapport Excel multi-onglets
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl duckdb numpy
     script: |
+      import os
       import sys
-      sys.path.insert(0, '.')
+      
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
       from scripts.python.generate_reports import generate_excel_report
-      from scripts.python.load_to_duckdb import query
+      from scripts.python.load_to_duckdb import query, get_connection
 
-      df = query("SELECT * FROM produits_consolides")
+      with get_connection() as conn:
+          df = query("SELECT * FROM produits_consolides", conn=conn)
+          
       out = generate_excel_report(df)
       print(f"Rapport ecrit : {out}")
     retry:
       type: exponential
       maxAttempt: 3
       interval: PT10S
+      maxInterval: PT5M
 
   - id: test_report_exists
     type: io.kestra.plugin.scripts.python.Script
     description: TEST - le fichier Excel existe et a 4 onglets
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q openpyxl
     script: |
+      import os
       from datetime import datetime
       from openpyxl import load_workbook
       from pathlib import Path
 
-      path = Path(f"data/processed/rapport_BottleNeck_{datetime.now():%Y-%m}.xlsx")
+      os.chdir('/app')
+      path = Path(f"/app/data/processed/rapport_BottleNeck_{datetime.now():%Y-%m}.xlsx")
       assert path.exists(), f"Rapport manquant : {path}"
       wb = load_workbook(path, read_only=True)
       expected = {'CA_par_produit', 'CA_total', 'Vins_premium', 'Vins_ordinaires'}

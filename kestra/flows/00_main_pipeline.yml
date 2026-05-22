@@ -1,68 +1,28 @@
-id: main_pipeline
-namespace: bottleneck
-
-# Pipeline principal BottleNeck.
-# Cible : extraction -> transformation -> tests -> rapport Excel.
-# Declenchement : tous les 15 du mois a 9h00 (heure Paris).
-
-description: |
-  Orchestration complete du pipeline BottleNeck.
-
-  Etapes (chaque etape de transformation est suivie d'une tache de test) :
-    1. Extraction       (subflow extraction)
-    2. Transformation   (subflow transformation)
-    3. Tests SQL        (subflow tests)
-    4. Rapport Excel    (genere par le subflow transformation)
-
-  Tolerance aux pannes :
-    - Retry automatique 3 fois sur chaque sous-tache (backoff exponentiel)
-    - Si un service tiers (DuckDB) reste indisponible, fallback CSV
-      ecrit dans data/processed/_fallback/ par les scripts Python
-    - Les fichiers source illisibles sont deplaces vers data/rejected/
+id: 00_main_pipeline
+namespace: bottleneck # Mis à jour
+description: Pipeline principal BottleNeck — Extraction, Transformation et Tests.
 
 tasks:
-  - id: extraction
-    type: io.kestra.plugin.core.flow.Subflow
+  - id: trigger_extraction
+    type: io.kestra.core.tasks.flows.Subflow
+    flowId: extraction # Nom de ton premier fichier
     namespace: bottleneck
-    flowId: extraction
     wait: true
-    retry:
-      type: exponential
-      maxAttempt: 3
-      interval: PT30S
-      maxInterval: PT5M
 
-  - id: transformation
-    type: io.kestra.plugin.core.flow.Subflow
+  - id: trigger_transformation
+    type: io.kestra.core.tasks.flows.Subflow
+    flowId: transformation # Nom de ton deuxième fichier
     namespace: bottleneck
-    flowId: transformation
     wait: true
-    retry:
-      type: exponential
-      maxAttempt: 3
-      interval: PT30S
-      maxInterval: PT5M
 
-  - id: tests_sql
-    type: io.kestra.plugin.core.flow.Subflow
+  - id: trigger_validation_reports
+    type: io.kestra.core.tasks.flows.Subflow
+    flowId: tests # Nom de ce fichier-ci
     namespace: bottleneck
-    flowId: tests
     wait: true
-    # Pas de retry sur les tests : si un test echoue c'est qu'il y a un vrai
-    # probleme metier, on ne veut pas le masquer.
-
-errors:
-  - id: notify_failure
-    type: io.kestra.plugin.core.log.Log
-    message: |
-      Pipeline BottleNeck en erreur.
-      Execution : {{ execution.id }}
-      Etat : {{ execution.state.current }}
-      Voir l'UI Kestra pour les details.
 
 triggers:
-  - id: schedule_15_du_mois
-    type: io.kestra.plugin.core.trigger.Schedule
-    # Le 15 de chaque mois a 9h00 (heure du serveur Kestra)
+  - id: monthly_schedule
+    type: io.kestra.core.models.triggers.types.Schedule
     cron: "0 9 15 * *"
     timezone: Europe/Paris

@@ -1,15 +1,10 @@
 id: extraction
 namespace: bottleneck
-
-# Sous-flow d'extraction des 3 fichiers Excel BottleNeck.
-# Suivi d'une tache de test de volumetrie.
-
 description: |
   Lit les 3 fichiers sources :
     - Fichier_erp.xlsx     (cible : 825 lignes)
     - Fichier_web.xlsx     (cible : 1513 lignes)
     - fichier_liaison.xlsx (cible : 825 lignes)
-
   Charge en RAM via pandas. Les eventuels fichiers illisibles sont
   deplaces vers data/rejected/ par le script Python.
 
@@ -17,31 +12,33 @@ tasks:
   - id: extract_sources
     type: io.kestra.plugin.scripts.python.Commands
     description: Extraction des fichiers sources via extract_files.py
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl
     commands:
+      - export PYTHONPATH="${PYTHONPATH}:/app"
+      - cd /app
       - python -m scripts.python.extract_files
     retry:
       type: exponential
       maxAttempt: 3
       interval: PT10S
+      maxInterval: PT5M
 
   - id: test_extraction_volumetrie
     type: io.kestra.plugin.scripts.python.Script
     description: Verifie la volumetrie des sources extraites (TEST)
-    namespaceFiles:
-      enabled: true
-    taskRunner:
-      type: io.kestra.plugin.core.runner.Process
+    runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl
     script: |
       import sys
-      sys.path.insert(0, '.')
+      import os
+      
+
+      os.chdir('/app')
+      sys.path.insert(0, '/app')
+      
       from scripts.python.extract_files import read_bottleneck_sources
 
       sources = read_bottleneck_sources()
