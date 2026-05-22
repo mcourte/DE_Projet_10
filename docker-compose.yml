@@ -1,3 +1,4 @@
+
 services:
   postgres:
     image: postgres:15
@@ -15,16 +16,17 @@ services:
       retries: 5
 
   kestra:
-    image: kestra/kestra:latest
+    image: kestra/kestra:v0.18.3
     container_name: de_projet_10-kestra
-    # CRUCIAL : Lance Kestra en mode serveur pour accéder à l'interface web
     command: server standalone 
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "8081:8080"
+      - "8080:8080"
     environment:
+      KESTRA_FLOWS_FROM_PATH: "true" 
+      KESTRA_FLOWS_PATH: "/app/flows"
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
@@ -40,9 +42,8 @@ services:
           storage:
             type: local
             local:
-              basePath: /app/storage
+              basePath: /tmp/kestra-storage
     volumes:
-      - kestra_data:/app/storage
       - ./kestra/flows:/app/flows
       - ./scripts:/app/scripts
       - ./data:/app/data
@@ -50,4 +51,3 @@ services:
 
 volumes:
   postgres_data:
-  kestra_data:
