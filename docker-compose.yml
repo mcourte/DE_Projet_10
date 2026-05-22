@@ -1,25 +1,29 @@
-version: "3.8"
-
-# Docker Compose pour lancer Kestra localement.
-# Commande : docker compose up -d
-# UI Kestra : http://localhost:8080
-
 services:
   postgres:
     image: postgres:15
+    container_name: de_projet_10-postgres
     environment:
       POSTGRES_DB: kestra
       POSTGRES_USER: kestra
       POSTGRES_PASSWORD: kestra
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   kestra:
     image: kestra/kestra:latest
+    container_name: de_projet_10-kestra
+    # CRUCIAL : Lance Kestra en mode serveur pour accéder à l'interface web
+    command: server standalone 
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       KESTRA_CONFIGURATION: |
         datasources:
