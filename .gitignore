@@ -30,6 +30,3 @@ kestra_data/
 .env.local
 !.env.example
 
-# Claude
-.claude/
-CLAUDE.md
