@@ -8,6 +8,20 @@ description: |
     - Classification : 30 premium, 684 ordinary (methode Z-score > 1.96 sur prix)
     - CA total : 70 568.60 EUR
     - Rapport Excel : data/processed/rapport_BottleNeck_YYYY-MM.xlsx
+    - CSV millesimes et ordinaires : data/processed/vins_*_YYYY-MM.csv
+
+# Input optionnel pour ajuster l'extraction CSV (cf. tache Switch en fin de flow).
+# Utile pour les demandes ad-hoc : ne reextraire qu'un seul segment sans
+# regenerer tout le rapport.
+inputs:
+  - id: extraction_mode
+    type: SELECT
+    defaults: full
+    values:
+      - full           # extrait premium + ordinary (cas mensuel par defaut)
+      - premium-only   # uniquement les vins millesimes
+      - ordinary-only  # uniquement les vins ordinaires
+    description: "Mode d'extraction des CSV (par defaut : full)"
 
 tasks:
   # --- ETAPE 1 : Nettoyage + test
@@ -39,28 +53,48 @@ tasks:
 
   - id: test_clean_data
     type: io.kestra.plugin.scripts.python.Script
-    description: TEST - volumetries cibles ERP=825, LIAISON=825, WEB dedup=714
+    description: |
+      TEST structurel : invariants apres nettoyage (pas de doublons sur les
+      cles primaires, tables non vides). Reutilisable chaque mois.
+      Volumes POC initiaux (825/825/714) : cf. test_chiffres_bottleneck.py.
     runner: PROCESS
     beforeCommands:
       - pip install -q duckdb pandas
     script: |
       import os
       import sys
-      
+
       os.chdir('/app')
       sys.path.insert(0, '/app')
       from scripts.python.load_to_duckdb import query, get_connection
 
-      # On force l'utilisation de la connexion persistante (fichier .db)
       with get_connection() as conn:
-          n_erp     = query("SELECT COUNT(*) AS n FROM erp_clean", conn=conn).iloc[0]['n']
+          # Invariant 1 : chaque table de nettoyage est non vide.
+          n_erp     = query("SELECT COUNT(*) AS n FROM erp_clean",     conn=conn).iloc[0]['n']
           n_liaison = query("SELECT COUNT(*) AS n FROM liaison_clean", conn=conn).iloc[0]['n']
-          n_web     = query("SELECT COUNT(*) AS n FROM web_clean", conn=conn).iloc[0]['n']
-          
-      assert n_erp == 825,     f"ERP : attendu 825, recu {n_erp}"
-      assert n_liaison == 825, f"LIAISON : attendu 825, recu {n_liaison}"
-      assert n_web == 714,     f"WEB dedup : attendu 714, recu {n_web}"
-      print(f"[TEST] OK : ERP={n_erp}, LIAISON={n_liaison}, WEB={n_web}")
+          n_web     = query("SELECT COUNT(*) AS n FROM web_clean",     conn=conn).iloc[0]['n']
+          assert n_erp     > 0, "ERP nettoye vide"
+          assert n_liaison > 0, "LIAISON nettoyee vide"
+          assert n_web     > 0, "WEB nettoye vide"
+
+          # Invariant 2 : unicite des cles primaires apres dedup.
+          dup_erp = query(
+              "SELECT COUNT(*) - COUNT(DISTINCT product_id) AS d FROM erp_clean",
+              conn=conn,
+          ).iloc[0]['d']
+          dup_liaison = query(
+              "SELECT COUNT(*) - COUNT(DISTINCT product_id) AS d FROM liaison_clean",
+              conn=conn,
+          ).iloc[0]['d']
+          dup_web = query(
+              "SELECT COUNT(*) - COUNT(DISTINCT sku) AS d FROM web_clean",
+              conn=conn,
+          ).iloc[0]['d']
+          assert dup_erp == 0,     f"ERP : {dup_erp} doublons product_id"
+          assert dup_liaison == 0, f"LIAISON : {dup_liaison} doublons product_id"
+          assert dup_web == 0,     f"WEB : {dup_web} doublons sku"
+
+      print(f"[TEST] Nettoyage OK : ERP={n_erp}, LIAISON={n_liaison}, WEB={n_web} (unicite cles OK)")
 
   # --- ETAPE 2 : Jointure + test
   - id: join_sources
@@ -91,23 +125,41 @@ tasks:
 
   - id: test_join_sources
     type: io.kestra.plugin.scripts.python.Script
-    description: TEST - jointure produit 714 lignes
+    description: |
+      TEST structurel : la jointure produit au moins 1 ligne, aucun doublon
+      de sku, et son volume <= au min des sources d'entree (proprete d'un
+      INNER JOIN). Reutilisable chaque mois.
+      Volume POC initial : 714 (cf. test_chiffres_bottleneck.py).
     runner: PROCESS
     beforeCommands:
       - pip install -q duckdb pandas
     script: |
       import os
       import sys
-      
+
       os.chdir('/app')
       sys.path.insert(0, '/app')
       from scripts.python.load_to_duckdb import query, get_connection
 
       with get_connection() as conn:
-          n = query("SELECT COUNT(*) AS n FROM produits_joints", conn=conn).iloc[0]['n']
-          
-      assert n == 714, f"Jointure : attendu 714, recu {n}"
-      print(f"[TEST] Jointure OK ({n} produits consolides)")
+          n_full = query("SELECT COUNT(*) AS n FROM produits_joints", conn=conn).iloc[0]['n']
+          n_erp  = query("SELECT COUNT(*) AS n FROM erp_clean",       conn=conn).iloc[0]['n']
+          n_web  = query("SELECT COUNT(*) AS n FROM web_clean",       conn=conn).iloc[0]['n']
+          dup    = query(
+              "SELECT COUNT(*) - COUNT(DISTINCT sku) AS d FROM produits_joints",
+              conn=conn,
+          ).iloc[0]['d']
+
+      # Invariant 1 : la jointure inner ne peut pas etre vide si on attend des resultats.
+      assert n_full > 0, "Jointure vide : aucun produit consolide"
+      # Invariant 2 : un INNER JOIN ne peut pas creer plus de lignes que la plus
+      # petite source (sauf en cas de doublons -> normalement impossible apres dedup).
+      assert n_full <= min(n_erp, n_web), (
+          f"Jointure suspecte : {n_full} > min(ERP={n_erp}, WEB={n_web})"
+      )
+      # Invariant 3 : pas de doublons sur la cle sku apres jointure.
+      assert dup == 0, f"Jointure : {dup} doublons de sku detectes"
+      print(f"[TEST] Jointure OK ({n_full} produits, unicite sku OK)")
 
   # --- ETAPE 3 : Classification + test
   - id: classify_wines
@@ -136,37 +188,66 @@ tasks:
 
   - id: test_classify_wines
     type: io.kestra.plugin.scripts.python.Script
-    description: TEST - 30 vins millesimes + 684 ordinaires + CA total = 70 568.60 EUR
+    description: |
+      TEST structurel : invariants de classification (chaque produit dans
+      exactement 1 segment, 2 segments non vides, prix moyen premium >
+      prix moyen ordinary par construction du Z-score) + CA > 0 et
+      coherence comptable. Reutilisable chaque mois.
+      Volumes POC initiaux : 30/684 + CA=70568.60 (cf. test_chiffres_bottleneck.py).
     runner: PROCESS
     beforeCommands:
       - pip install -q duckdb pandas
     script: |
       import os
       import sys
-      
+
       os.chdir('/app')
       sys.path.insert(0, '/app')
       from scripts.python.load_to_duckdb import query, get_connection
 
       with get_connection() as conn:
           df = query("""
-              SELECT segment, COUNT(*) AS n
+              SELECT segment, COUNT(*) AS n, AVG(price) AS prix_moyen,
+                     SUM(price * total_sales) AS ca_segment
               FROM produits_consolides
               GROUP BY segment
           """, conn=conn)
-          
-          ca = float(query(
-              "SELECT SUM(price * total_sales) AS ca FROM produits_consolides", conn=conn
+          n_total = query("SELECT COUNT(*) AS n FROM produits_consolides", conn=conn).iloc[0]['n']
+          ca_total = float(query(
+              "SELECT SUM(price * total_sales) AS ca FROM produits_consolides", conn=conn,
           ).iloc[0]['ca'])
-          
-      counts = dict(zip(df['segment'], df['n']))
-      n_premium = counts.get('premium', 0)
-      n_ordinary = counts.get('ordinary', 0)
-      
-      assert n_premium == 30,   f"Vins millesimes : attendu 30, recu {n_premium}"
-      assert n_ordinary == 684, f"Vins ordinaires : attendu 684, recu {n_ordinary}"
-      assert abs(ca - 70_568.60) < 1.0, f"CA total : attendu 70 568.60, recu {ca:.2f}"
-      print(f"[TEST] Classification OK ({n_premium} millesimes / {n_ordinary} ordinaires, CA = {ca:.2f} EUR)")
+
+      seg = df.set_index('segment')
+      n_premium  = int(seg.loc['premium',  'n']) if 'premium'  in seg.index else 0
+      n_ordinary = int(seg.loc['ordinary', 'n']) if 'ordinary' in seg.index else 0
+
+      # Invariant 1 : chaque produit dans exactement 1 segment.
+      assert n_premium + n_ordinary == n_total, (
+          f"Somme segments != total ({n_premium}+{n_ordinary}!={n_total})"
+      )
+      # Invariant 2 : aucun segment vide (sinon Z-score degenere).
+      assert n_premium > 0 and n_ordinary > 0, (
+          f"Classification degeneree : {n_premium} premium / {n_ordinary} ordinary"
+      )
+      # Invariant 3 : prix moyen premium > prix moyen ordinary (Z-score).
+      prix_p = float(seg.loc['premium',  'prix_moyen'])
+      prix_o = float(seg.loc['ordinary', 'prix_moyen'])
+      assert prix_p > prix_o, (
+          f"Prix moyen premium ({prix_p:.2f}) <= ordinary ({prix_o:.2f})"
+      )
+      # Invariant 4 : CA strictement positif.
+      assert ca_total > 0, f"CA total invalide : {ca_total:.2f}"
+      # Invariant 5 : coherence comptable (somme par segment = total).
+      ca_p = float(seg.loc['premium',  'ca_segment'])
+      ca_o = float(seg.loc['ordinary', 'ca_segment'])
+      assert abs((ca_p + ca_o) - ca_total) < 0.01, (
+          f"Incoherence CA : {ca_p:.2f} + {ca_o:.2f} != {ca_total:.2f}"
+      )
+
+      print(
+          f"[TEST] Classification OK ({n_premium} premium / {n_ordinary} ordinary, "
+          f"CA = {ca_total:.2f} EUR, prix moyen premium={prix_p:.2f} > ordinary={prix_o:.2f})"
+      )
 
   # --- ETAPE 4 : Rapport Excel
   - id: generate_report
@@ -215,3 +296,105 @@ tasks:
       missing = expected - set(wb.sheetnames)
       assert not missing, f"Onglets manquants : {missing}"
       print(f"[TEST] Rapport OK : {path} ({len(wb.sheetnames)} onglets)")
+
+  # --- ETAPE 5 : Extractions CSV (Switch selon le mode d'extraction)
+  # On utilise une tache Switch pour brancher l'extraction selon l'input
+  # `extraction_mode`. Cas par defaut (full) : on genere les deux CSV.
+  # Cas premium-only / ordinary-only : on ne genere qu'un seul CSV.
+  # Utile pour les demandes ad-hoc des responsables produits.
+  - id: extract_csv_segments
+    type: io.kestra.plugin.core.flow.Switch
+    description: Branche l'extraction CSV selon le mode (full / premium-only / ordinary-only)
+    value: "{{ inputs.extraction_mode }}"
+    cases:
+      "premium-only":
+        - id: export_premium_only
+          type: io.kestra.plugin.scripts.python.Script
+          description: Extraction du CSV millesimes uniquement
+          runner: PROCESS
+          beforeCommands:
+            - pip install -q pandas openpyxl duckdb
+          script: |
+            import os
+            import sys
+            os.chdir('/app')
+            sys.path.insert(0, '/app')
+            from scripts.python.generate_reports import export_wines_csv
+            from scripts.python.load_to_duckdb import query, get_connection
+
+            with get_connection() as conn:
+                df = query("SELECT * FROM produits_consolides", conn=conn)
+            milles_path, _ = export_wines_csv(df)
+            print(f"[EXTRACTION] CSV millesimes uniquement : {milles_path}")
+
+      "ordinary-only":
+        - id: export_ordinary_only
+          type: io.kestra.plugin.scripts.python.Script
+          description: Extraction du CSV ordinaires uniquement
+          runner: PROCESS
+          beforeCommands:
+            - pip install -q pandas openpyxl duckdb
+          script: |
+            import os
+            import sys
+            os.chdir('/app')
+            sys.path.insert(0, '/app')
+            from scripts.python.generate_reports import export_wines_csv
+            from scripts.python.load_to_duckdb import query, get_connection
+
+            with get_connection() as conn:
+                df = query("SELECT * FROM produits_consolides", conn=conn)
+            _, ord_path = export_wines_csv(df)
+            print(f"[EXTRACTION] CSV ordinaires uniquement : {ord_path}")
+
+    defaults:
+      - id: export_both_csv
+        type: io.kestra.plugin.scripts.python.Script
+        description: Extraction des deux CSV (cas nominal mensuel)
+        runner: PROCESS
+        beforeCommands:
+          - pip install -q pandas openpyxl duckdb
+        script: |
+          import os
+          import sys
+          os.chdir('/app')
+          sys.path.insert(0, '/app')
+          from scripts.python.generate_reports import export_wines_csv
+          from scripts.python.load_to_duckdb import query, get_connection
+
+          with get_connection() as conn:
+              df = query("SELECT * FROM produits_consolides", conn=conn)
+          milles_path, ord_path = export_wines_csv(df)
+          print(f"[EXTRACTION] CSV millesimes  : {milles_path}")
+          print(f"[EXTRACTION] CSV ordinaires : {ord_path}")
+
+  - id: test_csv_extractions
+    type: io.kestra.plugin.scripts.python.Script
+    description: TEST - les CSV attendus existent et ne sont pas vides
+    runner: PROCESS
+    beforeCommands:
+      - pip install -q pandas
+    script: |
+      import os
+      from datetime import datetime
+      from pathlib import Path
+      import pandas as pd
+
+      os.chdir('/app')
+      mode = "{{ inputs.extraction_mode }}"
+      ym = datetime.now().strftime("%Y-%m")
+      milles = Path(f"/app/data/processed/vins_millesimes_{ym}.csv")
+      ord_ = Path(f"/app/data/processed/vins_ordinaires_{ym}.csv")
+
+      # Selon le mode, on n'attend pas les memes fichiers.
+      if mode in ("full", "premium-only"):
+          assert milles.exists(), f"CSV millesimes manquant : {milles}"
+          n = len(pd.read_csv(milles, sep=";"))
+          assert n > 0, "CSV millesimes vide"
+          print(f"[TEST] CSV millesimes OK ({n} lignes)")
+
+      if mode in ("full", "ordinary-only"):
+          assert ord_.exists(), f"CSV ordinaires manquant : {ord_}"
+          n = len(pd.read_csv(ord_, sep=";"))
+          assert n > 0, "CSV ordinaires vide"
+          print(f"[TEST] CSV ordinaires OK ({n} lignes)")

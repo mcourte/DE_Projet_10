@@ -1,12 +1,15 @@
 id: extraction
 namespace: bottleneck
 description: |
-  Lit les 3 fichiers sources :
-    - Fichier_erp.xlsx     (cible : 825 lignes)
-    - Fichier_web.xlsx     (cible : 1513 lignes)
-    - fichier_liaison.xlsx (cible : 825 lignes)
-  Charge en RAM via pandas. Les eventuels fichiers illisibles sont
-  deplaces vers data/rejected/ par le script Python.
+  Lit les 3 fichiers sources (Excel) en RAM via pandas.
+
+  Volumes POC initiaux (cf. test_chiffres_bottleneck.py) :
+    - Fichier_erp.xlsx     : 825 lignes
+    - Fichier_web.xlsx     : 1513 lignes
+    - fichier_liaison.xlsx : 825 lignes
+
+  Les fichiers illisibles sont deplaces vers data/rejected/ par le
+  script Python.
 
 tasks:
   - id: extract_sources
@@ -25,27 +28,44 @@ tasks:
       interval: PT10S
       maxInterval: PT5M
 
-  - id: test_extraction_volumetrie
+  - id: test_extraction_structure
     type: io.kestra.plugin.scripts.python.Script
-    description: Verifie la volumetrie des sources extraites (TEST)
+    description: |
+      TEST structurel : les 3 sources sont non vides et ont les colonnes
+      attendues. Volontairement pas de check sur volumes exacts pour rester
+      reutilisable chaque mois (cf. test_chiffres_bottleneck.py pour les
+      chiffres POC initiaux 825/1513/825).
     runner: PROCESS
     beforeCommands:
       - pip install -q pandas openpyxl
     script: |
       import sys
       import os
-      
 
       os.chdir('/app')
       sys.path.insert(0, '/app')
-      
+
       from scripts.python.extract_files import read_bottleneck_sources
 
       sources = read_bottleneck_sources()
-      assert len(sources['erp']) == 825, f"ERP : attendu 825, recu {len(sources['erp'])}"
-      assert len(sources['web']) == 1513, f"WEB : attendu 1513, recu {len(sources['web'])}"
-      assert len(sources['liaison']) == 825, f"LIAISON : attendu 825, recu {len(sources['liaison'])}"
-      print("[TEST] Volumetrie extraction OK")
+
+      # Invariant 1 : chaque source doit etre non vide.
+      for name, df in sources.items():
+          assert len(df) > 0, f"Source '{name}' vide"
+
+      # Invariant 2 : colonnes cles presentes (sinon les etapes aval cassent).
+      assert 'product_id' in sources['erp'].columns,     "ERP : colonne product_id manquante"
+      assert 'product_id' in sources['liaison'].columns, "LIAISON : colonne product_id manquante"
+      assert 'id_web'     in sources['liaison'].columns, "LIAISON : colonne id_web manquante"
+      assert 'sku'        in sources['web'].columns,     "WEB : colonne sku manquante"
+      assert 'price'      in sources['erp'].columns,     "ERP : colonne price manquante"
+
+      print(
+          "[TEST] Structure extraction OK : "
+          f"ERP={len(sources['erp'])}, "
+          f"WEB={len(sources['web'])}, "
+          f"LIAISON={len(sources['liaison'])}"
+      )
 
 errors:
   - id: move_to_rejected

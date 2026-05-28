@@ -1,25 +1,68 @@
 id: 00_main_pipeline
-namespace: bottleneck # Mis à jour
-description: Pipeline principal BottleNeck — Extraction, Transformation et Tests.
+namespace: bottleneck
+description: |
+  Pipeline principal BottleNeck — Extraction, Transformation et Tests.
+
+  Architecture :
+    1. trigger_extraction      → 01_extraction.yml
+    2. trigger_transformation  → 02_transformation.yml (avec Switch + retry)
+    3. trigger_validation_reports → 03_tests.yml
+
+  Planification : le 15 de chaque mois à 9h00 (Europe/Paris).
+  Tolérance aux pannes : retry exponentiel sur chaque sous-flow + bloc
+  `errors:` global qui logge toute panne pour alerting/monitoring.
 
 tasks:
   - id: trigger_extraction
     type: io.kestra.core.tasks.flows.Subflow
-    flowId: extraction # Nom de ton premier fichier
+    flowId: extraction
     namespace: bottleneck
     wait: true
+    # Retry global : si un subflow échoue (réseau, service tiers indisponible),
+    # on retente jusqu'à 3 fois avec backoff exponentiel.
+    retry:
+      type: exponential
+      maxAttempt: 3
+      interval: PT10S
+      maxInterval: PT5M
 
   - id: trigger_transformation
     type: io.kestra.core.tasks.flows.Subflow
-    flowId: transformation # Nom de ton deuxième fichier
+    flowId: transformation
     namespace: bottleneck
     wait: true
+    retry:
+      type: exponential
+      maxAttempt: 3
+      interval: PT10S
+      maxInterval: PT5M
 
   - id: trigger_validation_reports
     type: io.kestra.core.tasks.flows.Subflow
-    flowId: tests # Nom de ce fichier-ci
+    flowId: tests
     namespace: bottleneck
     wait: true
+
+# --- Monitoring / Alerting ------------------------------------------------
+# Bloc `errors:` exécuté UNIQUEMENT si une tâche échoue définitivement
+# (après épuisement des retries). On logge l'erreur pour qu'elle soit
+# visible dans le dashboard Kestra et exploitable par un système
+# d'alerting externe (webhook, Slack, email…).
+#
+# Pour activer une notification Slack/email réelle, remplacer la tâche
+# `alert_on_failure` par :
+#   - io.kestra.plugin.notifications.slack.SlackIncomingWebhook
+#   - io.kestra.plugin.notifications.mail.MailSend
+errors:
+  - id: alert_on_failure
+    type: io.kestra.plugin.core.log.Log
+    level: ERROR
+    message: |
+      🚨 PIPELINE BOTTLENECK EN ÉCHEC
+      Flow      : {{ flow.id }} (namespace : {{ flow.namespace }})
+      Execution : {{ execution.id }}
+      Démarré   : {{ execution.startDate }}
+      → Investiguer dans le dashboard Kestra : Executions > {{ execution.id }}
 
 triggers:
   - id: monthly_schedule
