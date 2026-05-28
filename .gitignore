@@ -30,3 +30,7 @@ kestra_data/
 .env.local
 !.env.example
 
+# Présentations et documents de travail
+CLAUDE.md
+docs/presentation/
+.claude/
