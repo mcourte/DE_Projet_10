@@ -1,30 +1,27 @@
-"""Tests pytest du pipeline BottleNeck.
+"""Tests pytest du pipeline BottleNeck — partie STRUCTURELLE.
+
+Ces tests valident la LOGIQUE du pipeline indépendamment des valeurs
+exactes du dataset. Ils peuvent donc tourner chaque mois sur de nouvelles
+données sans avoir besoin de mettre à jour des chiffres en dur.
+
+Pour les tests qui valident les chiffres exacts de la POC initiale
+(825, 1428, 714, 30 millésimés, 70 568,60 €), voir :
+    tests/test_chiffres_bottleneck.py
 
 Lancement :
-    python -m pytest tests/ -v
+    python -m pytest tests/                          # tout
+    python -m pytest tests/test_pipeline.py          # uniquement structurels
+    python -m pytest tests/ -m "not cibles"          # exclure chiffres POC
+    python -m pytest tests/ -m integration           # après run_pipeline.py
 
-Trois categories de tests, separees par marqueurs pytest :
+Catégories internes (par marqueur pytest) :
 
-1. **Tests unitaires** (sans marqueur)
-   Testent la logique de chaque fonction sur des fixtures synthetiques.
-   Independants des fichiers reels -> rapides, deterministes.
+1. Tests unitaires (sans marqueur) — fixtures synthétiques.
+   Rapides, déterministes, indépendants des fichiers réels.
 
-2. **Tests sur chiffres cibles** -- marqueur `@pytest.mark.cibles`
-   Lisent les VRAIS fichiers BottleNeck (data/raw/bottleneck/) et verifient
-   les chiffres-cles annonces par Stephane :
-        - 714 lignes apres jointure
-        - 30 vins millesimes (Z-score > 1.96)
-        - CA total ~ 70 568,60 EUR
-   Auto-skip si les fichiers sont absents (utile en CI).
-
-3. **Tests d'integration DuckDB** -- marqueur `@pytest.mark.integration`
-   Verifient les tables apres une execution complete du pipeline.
+2. Tests d'intégration (marqueur `@pytest.mark.integration`).
+   Vérifient les invariants sur les tables DuckDB après run_pipeline.
    Auto-skip si duckdb/bottlerock.db n'existe pas.
-
-Filtrage usuel :
-    pytest tests/ -m "not cibles and not integration"   # uniquement unitaires
-    pytest tests/ -m cibles                              # chiffres BottleNeck
-    pytest tests/ -m integration                         # post-pipeline
 """
 
 import sys
@@ -33,12 +30,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-# Ajout du dossier racine au sys.path pour pouvoir importer scripts.python.*
-# meme quand pytest est lance depuis n'importe ou.
+# Racine du projet dans sys.path pour pouvoir importer scripts.python.*
+# même quand pytest est lancé depuis n'importe quel dossier.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.python import (  # noqa: E402  (import apres modif sys.path)
+from scripts.python import (  # noqa: E402  (import après modif sys.path)
     calculate_revenue,
     clean_data,
     extract_files,
@@ -49,19 +46,17 @@ from scripts.python import (  # noqa: E402  (import apres modif sys.path)
 )
 
 
-# Repertoires utiles aux tests "cibles" et "integration".
-BOTTLENECK_DIR = PROJECT_ROOT / "data" / "raw" / "bottleneck"
 DUCKDB_FILE = PROJECT_ROOT / "duckdb" / "bottlerock.db"
 
 
 # ===========================================================================
-# Fixtures synthetiques (donnees minimales pour les tests unitaires)
+# Fixtures synthétiques (données minimales pour les tests unitaires)
 # ===========================================================================
 
 
 @pytest.fixture
 def fake_erp() -> pd.DataFrame:
-    """Mini-ERP de 4 lignes pour tester les fonctions de nettoyage / jointure."""
+    """Mini-ERP de 4 lignes pour tester nettoyage / jointure."""
     return pd.DataFrame({
         "product_id": [1, 2, 3, 4],
         "onsale_web": [1, 1, 1, 0],
@@ -74,9 +69,9 @@ def fake_erp() -> pd.DataFrame:
 @pytest.fixture
 def fake_web() -> pd.DataFrame:
     """Mini-WEB avec 5 lignes incluant :
-        - une ligne sku=NaN (a droper a l'etape 1).
-        - un sku 'A2' en doublon (post_type='product' x2) : on doit garder le 1er.
-        - un sku 'A3' en attachment + product : la priorite va au 'product'.
+        - une ligne sku=NaN (à dropper à l'étape 1).
+        - un sku 'A2' en doublon (post_type='product' x2) : on garde le 1er.
+        - un sku 'A3' en attachment + product : la priorité va au 'product'.
     """
     return pd.DataFrame({
         "sku": ["A1", "A2", "A3", None, "A2"],
@@ -101,7 +96,7 @@ def fake_liaison() -> pd.DataFrame:
 
 
 # ===========================================================================
-# 1. Tests unitaires
+# 1. Tests unitaires (sans marqueur)
 # ===========================================================================
 
 
@@ -109,9 +104,8 @@ class TestExtractFiles:
     """Tests de scripts.python.extract_files."""
 
     def test_list_source_files(self, tmp_path: Path) -> None:
-        # On cree 3 fichiers dans un dossier temporaire :
-        # un .csv, un .xlsx, et un fichier cache (.hidden).
-        # Seuls les 2 premiers doivent apparaitre dans la liste.
+        # On crée 3 fichiers : un .csv, un .xlsx, un caché .hidden.
+        # Seuls les 2 premiers doivent apparaître dans la liste.
         (tmp_path / "a.csv").write_text("x,y\n1,2", encoding="utf-8")
         (tmp_path / "b.xlsx").write_bytes(b"")
         (tmp_path / ".hidden").write_text("nope", encoding="utf-8")
@@ -124,7 +118,6 @@ class TestExtractFiles:
         assert ".hidden" not in names
 
     def test_read_csv(self, tmp_path: Path) -> None:
-        # Un CSV simple doit etre lu avec ses 2 colonnes 'a' et 'b'.
         path = tmp_path / "x.csv"
         path.write_text("a,b\n1,2\n", encoding="utf-8")
 
@@ -132,7 +125,7 @@ class TestExtractFiles:
         assert list(df.columns) == ["a", "b"]
 
     def test_read_unknown_extension(self, tmp_path: Path) -> None:
-        # Un fichier .json n'est pas dans SUPPORTED_EXTENSIONS -> ValueError.
+        # Un .json n'est pas dans SUPPORTED_EXTENSIONS -> ValueError.
         path = tmp_path / "x.json"
         path.write_text("{}", encoding="utf-8")
 
@@ -140,7 +133,7 @@ class TestExtractFiles:
             extract_files.read_file(path)
 
     def test_read_bottleneck_missing(self, tmp_path: Path) -> None:
-        # Dossier vide -> aucun des 3 fichiers attendus -> FileNotFoundError.
+        # Dossier vide -> aucun des 3 fichiers -> FileNotFoundError.
         with pytest.raises(FileNotFoundError):
             extract_files.read_bottleneck_sources(tmp_path)
 
@@ -149,8 +142,7 @@ class TestCleanData:
     """Tests de scripts.python.clean_data."""
 
     def test_clean_erp_dedup(self, fake_erp: pd.DataFrame) -> None:
-        # On injecte un doublon en concatenant la 1re ligne a la fin.
-        # clean_erp doit le retirer -> 4 product_id uniques.
+        # On injecte un doublon : clean_erp doit le retirer.
         df = pd.concat([fake_erp, fake_erp.head(1)], ignore_index=True)
 
         out = clean_data.clean_erp(df)
@@ -159,26 +151,22 @@ class TestCleanData:
         assert len(out) == 4
 
     def test_clean_web_drops_sku_nan(self, fake_web: pd.DataFrame) -> None:
-        # Etape 1 du nettoyage WEB : drop des lignes sku=NaN.
-        # Sur 5 lignes brutes dont 1 NaN, il doit en rester 4.
+        # Étape 1 : drop des lignes sku=NaN. Sur 5 lignes dont 1 NaN -> 4.
         n = clean_data.count_web_after_cleaning(fake_web)
         assert n == 4
 
     def test_clean_web_dedup_priorise_product(self, fake_web: pd.DataFrame) -> None:
-        # Etape 2 : tous les sku doivent etre uniques apres dedup.
+        # Étape 2 : tous les sku doivent être uniques après dédup.
         out = clean_data.clean_web(fake_web)
 
         assert out["sku"].is_unique
-        # Tous les sku 'product' connus du fake_web doivent etre presents.
         for sku in ["A1", "A2", "A3"]:
             assert sku in out["sku"].tolist()
 
     def test_clean_web_dedup_keeps_first_for_same_post_type(
         self, fake_web: pd.DataFrame
     ) -> None:
-        # Quand 2 lignes ont le meme sku ET le meme post_type='product',
-        # drop_duplicates(keep='first') garde la 1re. Ici 'A2' apparait
-        # 2 fois en 'product' : on doit garder "Vin 2" (total_sales=5),
+        # 'A2' apparaît 2x en 'product' : on garde "Vin 2" (le 1er),
         # pas "Vin 2 dup" (total_sales=100).
         out = clean_data.clean_web(fake_web)
 
@@ -187,9 +175,8 @@ class TestCleanData:
         assert a2["total_sales"] == 5.0
 
     def test_clean_liaison_no_drop_nan(self, fake_liaison: pd.DataFrame) -> None:
-        # Stephane CONSERVE les lignes id_web=NaN apres dedup
-        # (elles seront filtrees plus tard par l'inner join WEB).
-        # 4 product_id distincts en entree -> 4 en sortie.
+        # Stéphane CONSERVE les id_web=NaN après dédup (filtrés plus tard
+        # par l'inner join WEB).
         out = clean_data.clean_liaison(fake_liaison)
         assert len(out) == 4
 
@@ -203,8 +190,7 @@ class TestJoinData:
         fake_web: pd.DataFrame,
         fake_liaison: pd.DataFrame,
     ) -> None:
-        # Le produit 4 n'a pas d'id_web -> il sera filtre par l'inner join.
-        # Les produits 1, 2, 3 sont relies a A1, A2, A3 -> 3 lignes finales.
+        # Le produit 4 n'a pas d'id_web -> filtré par l'inner join.
         erp = clean_data.clean_erp(fake_erp)
         web = clean_data.clean_web(fake_web)
         liaison = clean_data.clean_liaison(fake_liaison)
@@ -220,7 +206,6 @@ class TestJoinData:
         fake_web: pd.DataFrame,
         fake_liaison: pd.DataFrame,
     ) -> None:
-        # Le rapport doit exposer au moins ces 2 cles.
         erp = clean_data.clean_erp(fake_erp)
         web = clean_data.clean_web(fake_web)
         liaison = clean_data.clean_liaison(fake_liaison)
@@ -234,53 +219,35 @@ class TestJoinData:
 class TestIdentifyWines:
     """Tests de scripts.python.identify_wines."""
 
-    def test_iqr_thresholds(self) -> None:
-        # IQR = Q3 - Q1, donc Q1 < Q3 et upper > Q3 par construction.
-        prices = pd.Series([10, 20, 30, 40, 50, 1000])
-        t = identify_wines.compute_iqr_thresholds(prices)
-
-        assert t.q1 < t.q3
-        assert t.upper > t.q3
-
     def test_zscore_thresholds(self) -> None:
-        # Verification de la formule : upper == mean + threshold * std.
+        # Vérif de la formule : upper == mean + threshold * std.
         prices = pd.Series([10, 20, 30, 40, 50, 1000])
         z = identify_wines.compute_zscore_thresholds(prices, threshold=1.96)
 
         assert z.upper == z.mean + 1.96 * z.std
 
     def test_classify_zscore_isole_outlier(self) -> None:
-        # 100 valeurs a 10 + 1 outlier a 10 000 : le Z-score doit isoler
-        # exactement 1 produit comme 'premium' (l'outlier extreme).
+        # 100 valeurs à 10 + 1 outlier à 10 000 -> 1 seul premium.
         df = pd.DataFrame({"price": [10] * 100 + [10_000]})
 
-        out = identify_wines.classify_wines(df, method="zscore")
+        out = identify_wines.classify_wines(df)
 
         assert (out["segment"] == "premium").sum() == 1
         assert out.iloc[-1]["segment"] == "premium"
 
-    def test_classify_iqr_method(self) -> None:
-        # La methode IQR doit aussi detecter au moins l'outlier 1000.
-        df = pd.DataFrame({"price": [10, 20, 30, 40, 50, 1000]})
+    def test_classify_custom_threshold(self) -> None:
+        # Avec un seuil élevé (3.0), aucun produit ne dépasse mean + 3*std.
+        df = pd.DataFrame({"price": [10, 20, 30, 40, 50, 60]})
 
-        out = identify_wines.classify_wines(df, method="iqr")
+        out = identify_wines.classify_wines(df, threshold=3.0)
 
-        assert (out["segment"] == "premium").sum() >= 1
-
-    def test_classify_invalid_method(self) -> None:
-        # Une methode inconnue doit lever ValueError.
-        with pytest.raises(ValueError):
-            identify_wines.classify_wines(
-                pd.DataFrame({"price": [1, 2, 3]}), method="bogus"
-            )
+        assert (out["segment"] == "premium").sum() == 0
 
     def test_classify_missing_price_column(self) -> None:
-        # Pas de colonne 'price' -> ValueError.
         with pytest.raises(ValueError):
             identify_wines.classify_wines(pd.DataFrame({"x": [1]}))
 
     def test_split_premium_ordinary(self) -> None:
-        # Split correct : 1 ligne dans chaque sous-DataFrame.
         df = pd.DataFrame({
             "price": [10, 1000],
             "segment": ["ordinary", "premium"],
@@ -301,7 +268,7 @@ class TestCalculateRevenue:
         assert calculate_revenue.total_revenue(df) == 30 + 100
 
     def test_revenue_per_product_sorted(self) -> None:
-        # Le produit B (CA=200) doit apparaitre avant A (CA=10).
+        # Le produit B (CA=200) doit passer devant A (CA=10).
         df = pd.DataFrame({
             "sku": ["A", "B"],
             "post_title": ["x", "y"],
@@ -314,7 +281,6 @@ class TestCalculateRevenue:
         assert out.iloc[0]["sku"] == "B"
 
     def test_revenue_summary_segments(self) -> None:
-        # On doit retrouver les 2 segments + un total des parts == 100%.
         df = pd.DataFrame({
             "price": [10, 100],
             "total_sales": [1, 2],
@@ -328,11 +294,9 @@ class TestCalculateRevenue:
 
 
 class TestLoadToDuckDB:
-    """Tests de scripts.python.load_to_duckdb (sans serveur externe :
-    on travaille en base ':memory:' pour rester ephemere)."""
+    """Tests de scripts.python.load_to_duckdb (base ':memory:' éphémère)."""
 
     def test_get_connection_in_memory(self) -> None:
-        # Une connexion in-memory doit savoir executer un simple SELECT 1.
         conn = load_to_duckdb.get_connection(":memory:")
         try:
             assert conn.execute("SELECT 1").fetchone()[0] == 1
@@ -351,7 +315,6 @@ class TestLoadToDuckDB:
             conn.close()
 
     def test_write_table_invalid_mode(self) -> None:
-        # Mode 'bogus' n'est ni 'replace' ni 'append' -> ValueError immediat.
         with pytest.raises(ValueError):
             load_to_duckdb.write_table(
                 pd.DataFrame({"a": [1]}), "t", mode="bogus"
@@ -360,21 +323,20 @@ class TestLoadToDuckDB:
     def test_fallback_writes_csv_on_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Tolerance aux pannes : si DuckDB est KO, un CSV de secours est ecrit.
+        """Tolérance aux pannes : si DuckDB est KO, un CSV de secours est écrit.
 
-        On simule la panne en monkeypatchant `_write_table_inner` pour qu'il
-        leve directement DuckDBUnavailable (court-circuite la boucle de retry).
-        On redirige aussi FALLBACK_DIR vers un dossier temporaire pour que
-        le CSV ecrit ne pollue pas le projet.
+        On simule la panne en monkeypatchant `_write_table_inner` pour
+        qu'il lève directement DuckDBUnavailable (court-circuite le retry).
+        On redirige aussi FALLBACK_DIR vers tmp_path pour ne pas polluer.
         """
         def fail(*args, **kwargs):
-            raise load_to_duckdb.DuckDBUnavailable("DuckDB simule KO")
+            raise load_to_duckdb.DuckDBUnavailable("DuckDB simulé KO")
 
         monkeypatch.setattr(load_to_duckdb, "_write_table_inner", fail)
         monkeypatch.setattr(load_to_duckdb, "FALLBACK_DIR", tmp_path)
 
-        # write_table doit re-lever DuckDBUnavailable (signal pour l'appelant)
-        # MAIS le CSV doit avoir ete ecrit AVANT.
+        # write_table doit re-lever DuckDBUnavailable, MAIS le CSV doit
+        # avoir été écrit AVANT (les données ne sont pas perdues).
         with pytest.raises(load_to_duckdb.DuckDBUnavailable):
             load_to_duckdb.write_table(pd.DataFrame({"a": [1]}), "demo")
 
@@ -385,9 +347,8 @@ class TestGenerateReports:
     """Tests de scripts.python.generate_reports."""
 
     def test_report_has_expected_sheets(self, tmp_path: Path) -> None:
-        # On verifie que le fichier Excel produit contient bien les 4 onglets
-        # imposes par l'enonce du livrable.
-        from openpyxl import load_workbook  # import local : evite de payer le cout au boot
+        # Le fichier Excel doit contenir les 4 onglets imposés par l'énoncé.
+        from openpyxl import load_workbook
 
         df = pd.DataFrame({
             "sku": ["A", "B", "C"],
@@ -413,7 +374,7 @@ class TestGenerateReports:
         }
 
     def test_report_missing_segment_column(self, tmp_path: Path) -> None:
-        # Sans colonne 'segment', on ne peut pas decouper -> ValueError.
+        # Sans colonne 'segment' -> ValueError.
         df = pd.DataFrame({"sku": ["A"], "price": [10], "total_sales": [1]})
 
         with pytest.raises(ValueError):
@@ -423,107 +384,22 @@ class TestGenerateReports:
 
 
 # ===========================================================================
-# 2. Tests sur les chiffres cibles BottleNeck (donnees reelles)
+# 2. Tests d'intégration DuckDB (invariants — réutilisables chaque mois)
 # ===========================================================================
-
-
-@pytest.fixture
-def real_sources():
-    """Charge les 3 fichiers BottleNeck reels.
-
-    Auto-skip si le dossier ou les fichiers n'existent pas (pratique en CI
-    ou sur la machine d'un autre etudiant qui n'a pas encore decompresse
-    le dataset).
-    """
-    if not BOTTLENECK_DIR.exists() or not list(BOTTLENECK_DIR.glob("*.xlsx")):
-        pytest.skip("Fichiers BottleNeck absents")
-    return extract_files.read_bottleneck_sources(BOTTLENECK_DIR)
-
-
-@pytest.mark.cibles
-class TestChiffresBottleNeck:
-    """Verifie les chiffres EXACTS annonces par Stephane sur le dataset reel.
-
-    Cibles :
-        - dedup ERP        = 825 lignes
-        - dedup LIAISON    = 825 lignes
-        - nettoyage WEB    = 1 428 lignes (drop sku NaN)
-        - dedup WEB        = 714 lignes
-        - fusion           = 714 lignes
-        - vins millesimes  = 30   (Z-score > 1.96)
-        - CA total         = 70 568,60 EUR
-    """
-
-    def test_extraction_volumetrie(self, real_sources) -> None:
-        assert len(real_sources["erp"]) == 825
-        assert len(real_sources["web"]) == 1513
-        assert len(real_sources["liaison"]) == 825
-
-    def test_dedup_erp_donne_825_lignes(self, real_sources) -> None:
-        erp = clean_data.clean_erp(real_sources["erp"])
-        assert len(erp) == 825
-
-    def test_dedup_liaison_donne_825_lignes(self, real_sources) -> None:
-        liaison = clean_data.clean_liaison(real_sources["liaison"])
-        assert len(liaison) == 825
-
-    def test_nettoyage_web_donne_1428_lignes(self, real_sources) -> None:
-        # Etape 1 isolee : drop sku NaN seulement.
-        n = clean_data.count_web_after_cleaning(real_sources["web"])
-        assert n == 1428, f"Attendu 1428, recu {n}"
-
-    def test_dedup_web_donne_714_lignes(self, real_sources) -> None:
-        web = clean_data.clean_web(real_sources["web"])
-        assert len(web) == 714, f"Attendu 714, recu {len(web)}"
-
-    def test_fusion_donne_714_lignes(self, real_sources) -> None:
-        erp = clean_data.clean_erp(real_sources["erp"])
-        web = clean_data.clean_web(real_sources["web"])
-        liaison = clean_data.clean_liaison(real_sources["liaison"])
-
-        full = join_data.join_sources(erp, web, liaison)
-
-        assert len(full) == 714
-
-    def test_30_vins_millesimes(self, real_sources) -> None:
-        erp = clean_data.clean_erp(real_sources["erp"])
-        web = clean_data.clean_web(real_sources["web"])
-        liaison = clean_data.clean_liaison(real_sources["liaison"])
-
-        full = identify_wines.classify_wines(
-            join_data.join_sources(erp, web, liaison),
-            method="zscore",
-        )
-
-        n_premium = (full["segment"] == "premium").sum()
-        assert n_premium == 30, f"Attendu 30 vins millesimes, recu {n_premium}"
-
-    def test_ca_total_egale_70568_60(self, real_sources) -> None:
-        erp = clean_data.clean_erp(real_sources["erp"])
-        web = clean_data.clean_web(real_sources["web"])
-        liaison = clean_data.clean_liaison(real_sources["liaison"])
-
-        full = join_data.join_sources(erp, web, liaison)
-        ca = calculate_revenue.total_revenue(full)
-
-        # Tolerance +/- 1 EUR pour absorber les arrondis float.
-        assert abs(ca - 70_568.60) < 1.0, f"Attendu 70 568.60, recu {ca:.2f}"
-
-
-# ===========================================================================
-# 3. Tests d'integration sur DuckDB (apres run pipeline)
-# ===========================================================================
+# Ces tests valident la STRUCTURE de la base après le pipeline, sans dépendre
+# des valeurs exactes du dataset. Ils continueront de passer le mois suivant
+# même si les chiffres changent.
 
 
 @pytest.fixture
 def duckdb_conn():
     """Ouvre une connexion sur la base post-pipeline.
 
-    Auto-skip si la base n'existe pas (il faut avoir lance run_pipeline.py
-    au moins une fois pour qu'elle soit creee).
+    Auto-skip si la base n'existe pas (il faut lancer run_pipeline.py
+    au moins une fois pour qu'elle soit créée).
     """
     if not DUCKDB_FILE.exists():
-        pytest.skip("duckdb/bottlerock.db absent : executer run_pipeline.py")
+        pytest.skip("duckdb/bottlerock.db absent : exécuter run_pipeline.py")
 
     conn = load_to_duckdb.get_connection(DUCKDB_FILE)
     try:
@@ -534,18 +410,18 @@ def duckdb_conn():
 
 @pytest.mark.integration
 class TestDuckDBIntegration:
-    """Tests post-pipeline : on interroge DuckDB et on valide les invariants."""
+    """Invariants post-pipeline : valables quel que soit le dataset."""
 
-    def test_table_produits_consolides_existe(self, duckdb_conn) -> None:
-        # La table doit exister et contenir 714 produits.
+    def test_table_produits_consolides_non_vide(self, duckdb_conn) -> None:
+        # La table doit exister et contenir au moins une ligne.
         n = duckdb_conn.execute(
             "SELECT COUNT(*) FROM produits_consolides"
         ).fetchone()[0]
-        assert n == 714
+        assert n > 0, "La table produits_consolides est vide"
 
     def test_ca_premium_plus_ordinary_egal_total(self, duckdb_conn) -> None:
-        # Test de coherence : la somme des CA par segment doit egaler le total.
-        # COALESCE pour proteger des cas ou un segment serait vide (renvoie 0).
+        # Cohérence : somme des CA par segment == CA total.
+        # COALESCE protège contre un segment vide (renvoie 0).
         sql = """
             SELECT
                 COALESCE(SUM(CASE WHEN segment='premium'  THEN price*total_sales END), 0) AS ca_p,
@@ -559,7 +435,7 @@ class TestDuckDBIntegration:
         assert abs((ca_p + ca_o) - ca_t) < 0.01
 
     def test_completude_aucun_null_critique(self, duckdb_conn) -> None:
-        # Apres nettoyage : aucune ligne ne doit avoir un price/sku/product_id NULL.
+        # Après nettoyage : aucune ligne avec price/sku/product_id NULL.
         n = duckdb_conn.execute("""
             SELECT COUNT(*) FROM produits_consolides
             WHERE price IS NULL OR sku IS NULL OR product_id IS NULL
@@ -567,10 +443,27 @@ class TestDuckDBIntegration:
 
         assert n == 0
 
-    def test_references_uniques(self, duckdb_conn) -> None:
-        # Tous les sku doivent etre distincts apres dedup (proxy : 'references').
-        n = duckdb_conn.execute(
-            "SELECT COUNT(DISTINCT sku) FROM produits_consolides"
-        ).fetchone()[0]
+    def test_sku_tous_uniques(self, duckdb_conn) -> None:
+        # Invariant : après dédup, chaque sku apparaît exactement 1 fois.
+        # On compare DISTINCT vs total plutôt qu'à une valeur fixe.
+        row = duckdb_conn.execute("""
+            SELECT COUNT(DISTINCT sku) AS distincts, COUNT(*) AS total
+            FROM produits_consolides
+        """).fetchone()
 
-        assert n == 714
+        assert row[0] == row[1], f"sku non uniques : {row[0]} distincts / {row[1]} total"
+
+    def test_segments_repartis(self, duckdb_conn) -> None:
+        # Invariant méthode Z-score : chaque ligne a un segment 'premium'
+        # ou 'ordinary'. Au moins un des deux doit être non vide.
+        row = duckdb_conn.execute("""
+            SELECT
+                SUM(CASE WHEN segment='premium'  THEN 1 ELSE 0 END) AS n_p,
+                SUM(CASE WHEN segment='ordinary' THEN 1 ELSE 0 END) AS n_o,
+                COUNT(*) AS total
+            FROM produits_consolides
+        """).fetchone()
+        n_p, n_o, total = int(row[0]), int(row[1]), int(row[2])
+
+        assert n_p + n_o == total, "Certaines lignes n'ont pas de segment"
+        assert total > 0
