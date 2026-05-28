@@ -3,7 +3,6 @@
 Pipeline automatisé pour industrialiser la consolidation manuelle effectuée par
 Stéphane (Data Analyst) chez BottleNeck (e-commerce de vins prestigieux).
 
-📦 **Dépôt GitHub** : <https://github.com/mcourte/DE_Projet_10>
 
 ## Stack
 
@@ -310,10 +309,6 @@ DE_Projet_10/
     │   ├── data_lineage.md                ← documentation du lineage
     │   ├── data_lineage.drawio            ← diagramme source (éditable)
     │   └── data_lineage.drawio.png        ← export visuel
-    └── presentation/
-        ├── soutenance.md                  ← support oral (25 min)
-        ├── script_15min.md                ← script soutenance slide par slide
-        └── qa_jury.md                     ← réponses préparées aux questions du jury
 ```
 
 ## Méthodologie statistique — classification z-score
@@ -338,6 +333,4 @@ La fonction `classify_wines()` accepte aussi la méthode IQR comme alternative
 
 - 📘 [Journal de bord](docs/journal_de_bord.md) — démarche complète, choix techniques, difficultés rencontrées
 - 🏗 [Data lineage](docs/architecture/data_lineage.md) + [diagramme Drawio](docs/architecture/data_lineage.drawio.png)
-- 🎤 [Support de soutenance](docs/presentation/soutenance.md) (25 min)
-- ⏱ [Script soutenance 15 min](docs/presentation/script_15min.md) — slide par slide
-- 💬 [Q&A jury](docs/presentation/qa_jury.md) — réponses préparées aux questions probables
+
