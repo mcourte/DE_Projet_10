@@ -1,18 +1,17 @@
--- Test de coherence du z-score sur la classification millesimes / ordinaires.
+-- Test STRUCTUREL de la classification Z-score (reutilisable chaque mois).
 --
--- Verifie 2 invariants :
---   1. Tous les vins classes 'premium' ont un prix > seuil z-score (mean + 1.96*std)
---   2. Tous les vins classes 'ordinary'  ont un prix <= seuil
+-- Verifie 3 invariants :
+--   1. Chaque vin 'premium'  a un prix > seuil z-score (mean + 1.96*std).
+--   2. Chaque vin 'ordinary' a un prix <= seuil.
+--   3. Les 2 segments sont non vides (sinon classification degeneree).
 --
--- Retourne le nombre de violations. Doit etre = 0.
+-- Retourne 0 si OK, sinon un code > 0.
 --
--- Cible attendue par Stephane :
+-- Volumes POC initiaux (cf. test_chiffres_bottleneck.py) :
 --   30 vins millesimes / 684 vins ordinaires.
 
 WITH stats AS (
     SELECT
-        AVG(price)                      AS mean_price,
-        stddev_samp(price)              AS std_price,
         AVG(price) + 1.96 * stddev_samp(price) AS seuil_z
     FROM produits_consolides
     WHERE price IS NOT NULL
@@ -21,22 +20,20 @@ violations AS (
     SELECT COUNT(*) AS nb
     FROM produits_consolides p, stats s
     WHERE
-        -- Cas 1 : vin marque premium mais prix <= seuil
-        (p.segment = 'premium'  AND p.price <= s.seuil_z)
+        (p.segment = 'premium'  AND p.price <= s.seuil_z)   -- mal classe en premium
         OR
-        -- Cas 2 : vin marque ordinary mais prix > seuil
-        (p.segment = 'ordinary' AND p.price >  s.seuil_z)
+        (p.segment = 'ordinary' AND p.price >  s.seuil_z)   -- mal classe en ordinary
 ),
 volumetrie AS (
     SELECT
-        COUNT(*) FILTER (WHERE segment = 'premium')  AS nb_millesimes,
-        COUNT(*) FILTER (WHERE segment = 'ordinary') AS nb_ordinaires
+        COUNT(*) FILTER (WHERE segment = 'premium')  AS nb_premium,
+        COUNT(*) FILTER (WHERE segment = 'ordinary') AS nb_ordinary
     FROM produits_consolides
 )
 SELECT
-    v.nb
-    -- on inclut volumetrie pour debug : si la classification est mauvaise on le voit
-    + CASE WHEN vol.nb_millesimes <> 30  THEN 100 ELSE 0 END
-    + CASE WHEN vol.nb_ordinaires <> 684 THEN 100 ELSE 0 END
-    AS nb_violations
+    CASE
+        WHEN v.nb > 0                                    THEN 1   -- regle Z-score violee
+        WHEN vol.nb_premium = 0 OR vol.nb_ordinary = 0   THEN 2   -- segment vide
+        ELSE 0
+    END AS nb_violations
 FROM violations v, volumetrie vol;

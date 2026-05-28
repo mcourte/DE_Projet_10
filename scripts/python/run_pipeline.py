@@ -1,36 +1,15 @@
 """Orchestrateur local du pipeline BottleNeck.
 
-----------------------------------------------------------------------------
-ROLE DE CE MODULE :
-    Permet de lancer la chaine COMPLETE du pipeline sans Kestra. Pratique
-    pour :
-        - debugger localement (on voit les erreurs Python directement).
-        - relancer un run a la main (le mentor qui ouvre le projet).
-        - servir de "specification executable" : si on lit ce fichier de
-          haut en bas, on comprend exactement ce que fait le pipeline.
+Lance la chaîne complète sans Kestra (pratique pour debug, démo, ou
+test manuel). Usage :
 
-USAGE :
     python -m scripts.python.run_pipeline
 
-ETAPES DU PIPELINE :
-    1. Extraction des 3 sources Excel.
-    2. Nettoyage (ERP, WEB, LIAISON) avec test de volumetrie.
-    3. Jointure ERP-LIAISON-WEB avec test de volumetrie.
-    4. Classification millesimes/ordinaires avec test de coherence.
-    5. Calcul du CA avec test de plage.
-    6. Persistance DuckDB (avec fallback CSV) + rapport Excel.
-
-PHILOSOPHIE "TEST APRES CHAQUE TRANSFORMATION" :
-    Conformement a l'architecture cible du livrable, chaque etape de
-    transformation est suivie d'une 'tache de test' qui valide le
-    resultat AVANT de poursuivre. Si un test echoue, le pipeline
-    s'arrete net (AssertionError) -> on conserve l'etat du run
-    precedent intact, et on alerte plutot que de produire un rapport
-    silencieusement faux.
-
-    Les memes tests sont re-joues par Kestra dans le workflow YAML, et
-    par pytest dans tests/test_pipeline.py.
-----------------------------------------------------------------------------
+Pipeline = 6 étapes : extraction → nettoyage → jointure → classification
+→ CA → persistance (DuckDB + Excel). Après chaque transformation, un
+contrôle vérifie une cible chiffrée. Si un contrôle échoue, le pipeline
+s'arrête immédiatement pour ne PAS écrire un rapport silencieusement faux
+(on conserve l'état du run précédent intact).
 """
 
 import logging
@@ -38,234 +17,163 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Permet de lancer le module en standalone (`python -m scripts.python.run_pipeline`).
-# Sans cette ligne, Python ne saurait pas trouver `scripts.python.*` quand
-# le module est lance directement et non importe.
+# On ajoute la racine du projet à sys.path pour pouvoir importer
+# scripts.python.* quand on lance le fichier en standalone.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# `# noqa: E402` desactive le warning "import not at top of file" pour ces lignes.
-# C'est volontaire : on doit modifier sys.path AVANT d'importer scripts.python.*.
+# noqa: E402 = "import not at top of file". C'est volontaire :
+# il FAUT modifier sys.path avant d'importer scripts.python.*.
 from scripts.python.calculate_revenue import revenue_summary, total_revenue  # noqa: E402
 from scripts.python.clean_data import clean_erp, clean_liaison, clean_web  # noqa: E402
 from scripts.python.extract_files import read_bottleneck_sources  # noqa: E402
 from scripts.python.generate_reports import generate_all_reports  # noqa: E402
 from scripts.python.identify_wines import classify_wines  # noqa: E402
 from scripts.python.join_data import join_sources  # noqa: E402
-from scripts.python.load_to_duckdb import (  # noqa: E402
-    DuckDBUnavailable,
-    get_connection,
-    write_table,
-)
+from scripts.python.load_to_duckdb import DuckDBUnavailable, get_connection, write_table  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
 
 
-# --- Helper test ------------------------------------------------------------
-
-
 def _check(condition: bool, message: str) -> None:
-    """Leve AssertionError si la condition est fausse.
+    """Lève AssertionError si la condition est fausse.
 
-    Pourquoi pas un simple `assert` ?
-        L'option `python -O` (mode optimise) DESACTIVE les `assert` natifs.
-        Les tests "metier" du pipeline ne doivent JAMAIS etre ignores,
-        meme en prod. Ce wrapper garantit qu'ils s'executent toujours.
+    On n'utilise pas `assert` directement parce qu'il est désactivé par
+    `python -O` (mode optimisé) : les contrôles métier doivent TOUJOURS
+    s'exécuter, même en prod.
     """
     if not condition:
         raise AssertionError(message)
 
 
-# --- Taches de tests intermediaires -----------------------------------------
-# Chaque test verifie UNE cible chiffree de Stephane apres une etape.
-# Si l'un d'eux echoue, le pipeline s'arrete et on n'ecrit rien dans DuckDB
-# ni dans le rapport Excel : on conserve l'etat du run precedent intact.
-
-
-def test_erp_volumetrie(df) -> None:
-    """Cible Stephane : 825 lignes apres dedoublonnage."""
-    _check(len(df) == 825, f"ERP attendu 825 lignes, obtenu {len(df)}")
-    logger.info("[TEST] ERP OK (%d lignes)", len(df))
-
-
-def test_liaison_volumetrie(df) -> None:
-    """Cible Stephane : 825 lignes apres dedoublonnage."""
-    _check(len(df) == 825, f"LIAISON attendu 825 lignes, obtenu {len(df)}")
-    logger.info("[TEST] LIAISON OK (%d lignes)", len(df))
-
-
-def test_web_apres_nettoyage(n_apres_nettoyage: int) -> None:
-    """Cible Stephane : 1428 lignes apres drop sku NaN.
-
-    On recoit le compteur deja calcule (pas le DataFrame) parce qu'on
-    veut tester l'etape 1 isolement, sans relancer l'etape 2.
-    """
-    _check(
-        n_apres_nettoyage == 1428,
-        f"WEB nettoye attendu 1428 lignes, obtenu {n_apres_nettoyage}",
-    )
-    logger.info("[TEST] WEB nettoye OK (%d lignes)", n_apres_nettoyage)
-
-
-def test_web_apres_dedup(df) -> None:
-    """Cible Stephane : 714 lignes apres dedoublonnage sku."""
-    _check(len(df) == 714, f"WEB dedup attendu 714 lignes, obtenu {len(df)}")
-    logger.info("[TEST] WEB dedup OK (%d lignes)", len(df))
-
-
-def test_volumetrie_jointure(df) -> None:
-    """Cible Stephane : 714 lignes apres fusion ERP-LIAISON-WEB."""
-    _check(len(df) == 714, f"Fusion attendue 714 lignes, obtenu {len(df)}")
-    logger.info("[TEST] Fusion OK (%d lignes)", len(df))
-
-
-def test_classification_coherente(df) -> None:
-    """Cible Stephane : 30 vins millesimes (Z-score > 1.96).
-
-    Double verification :
-        1) Le nombre de premium == 30.
-        2) La somme premium + ordinary == total (= invariant de classification :
-           chaque produit doit etre dans EXACTEMENT un segment).
-    """
-    counts = df["segment"].value_counts()
-    n_premium = int(counts.get("premium", 0))
-    n_ordinary = int(counts.get("ordinary", 0))
-    _check(
-        n_premium == 30,
-        f"Vins millesimes : attendu 30, obtenu {n_premium}",
-    )
-    _check(
-        n_premium + n_ordinary == len(df),
-        f"Somme des segments != total ({n_premium}+{n_ordinary}!={len(df)})",
-    )
-    logger.info(
-        "[TEST] Classification OK (%d millesimes, %d ordinaires)",
-        n_premium, n_ordinary,
-    )
-
-
-def test_ca_total(df) -> None:
-    """Cible Stephane : 70 568,60 EUR.
-
-    Tolerance +/- 1 EUR pour absorber les arrondis float de pandas
-    (les sommes de millions de floats peuvent diverger de quelques
-    centimes selon l'ordre d'addition).
-    """
-    ca = total_revenue(df)
-    _check(
-        abs(ca - 70_568.60) < 1.0,
-        f"CA total attendu 70 568.60, obtenu {ca:.2f}",
-    )
-    logger.info("[TEST] CA total OK (%.2f EUR)", ca)
-
-
-# --- Pipeline ---------------------------------------------------------------
-
-
 def run() -> dict:
-    """Execute le pipeline complet et retourne un resume.
-
-    C'est la fonction principale du module. Elle peut etre :
-        - appelee directement par le bloc __main__ ci-dessous.
-        - importee par un autre script (Kestra, notebook, autre).
-        - testee unitairement (cf. tests/test_pipeline.py).
-
-    Returns:
-        dict avec les indicateurs cles du run (CA, volumetries, chemins
-        des livrables, etat de DuckDB). Utile pour Kestra qui peut le
-        serializer en JSON dans la sortie de la tache.
-    """
+    """Lance le pipeline complet et renvoie un résumé (lu par Kestra)."""
     started_at = datetime.now()
     logger.info("=" * 70)
     logger.info("PIPELINE BOTTLENECK - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
     logger.info("=" * 70)
 
-    # ====================================================================
-    # 1. Extraction
-    # ====================================================================
-    logger.info("\n[1/6] Extraction des sources")
+    # --- 1. Extraction ------------------------------------------------------
+    logger.info("[1/6] Extraction des sources")
     sources = read_bottleneck_sources()
 
-    # ====================================================================
-    # 2. Nettoyage + tests (chaque source controlee individuellement)
-    # ====================================================================
-    logger.info("\n[2/6] Nettoyage + tests")
+    # --- 2. Nettoyage + contrôles STRUCTURELS -------------------------------
+    # Les contrôles ci-dessous testent des INVARIANTS (pas de doublons, pas
+    # de table vide, etc.) — ils restent valides quel que soit le mois.
+    # Les chiffres POC initiaux validés par Stéphane (825 / 1428 / 714) sont
+    # vérifiés séparément dans tests/test_chiffres_bottleneck.py.
+    logger.info("[2/6] Nettoyage + contrôles structurels")
     erp = clean_erp(sources["erp"])
-    test_erp_volumetrie(erp)
+    _check(
+        len(erp) > 0 and erp["product_id"].is_unique,
+        f"ERP invalide : {len(erp)} lignes ou doublons product_id",
+    )
 
     liaison = clean_liaison(sources["liaison"])
-    test_liaison_volumetrie(liaison)
+    _check(
+        len(liaison) > 0 and liaison["product_id"].is_unique,
+        f"LIAISON invalide : {len(liaison)} lignes ou doublons product_id",
+    )
 
-    # WEB : on capte le compteur intermediaire APRES etape 1 (drop sku NaN)
-    # pour pouvoir tester la cible 1428 sans relancer toute clean_web.
-    n_web_apres_nettoyage = sources["web"].dropna(subset=["sku"]).shape[0]
-    test_web_apres_nettoyage(n_web_apres_nettoyage)
-
-    # Puis on enchaine avec etape 2 (dedup) qui elle nous donne 714 lignes.
+    # WEB : on vérifie que le nettoyage a bien filtré quelque chose (drop NaN)
+    # ET qu'on a au moins 1 ligne après dédup, sans doublon de sku.
+    n_web_brut = len(sources["web"])
+    n_web_intermediaire = sources["web"].dropna(subset=["sku"]).shape[0]
+    _check(
+        n_web_intermediaire < n_web_brut,
+        f"WEB drop sku NaN inefficace : {n_web_brut} -> {n_web_intermediaire}",
+    )
     web = clean_web(sources["web"])
-    test_web_apres_dedup(web)
+    _check(
+        len(web) > 0 and web["sku"].is_unique,
+        f"WEB dédup invalide : {len(web)} lignes ou doublons sku",
+    )
+    logger.info("ERP=%d, LIAISON=%d, WEB=%d", len(erp), len(liaison), len(web))
 
-    # ====================================================================
-    # 3. Jointure + test
-    # ====================================================================
-    logger.info("\n[3/6] Jointure + test")
+    # --- 3. Jointure + contrôle structurel ---------------------------------
+    logger.info("[3/6] Jointure ERP ⟕ LIAISON ⟕ WEB")
     full = join_sources(erp, web, liaison)
-    test_volumetrie_jointure(full)
+    # Invariants : la fusion (inner join) ne peut pas créer plus de lignes
+    # que la source la plus petite, et chaque produit y est unique par sku.
+    _check(
+        len(full) > 0 and len(full) <= min(len(erp), len(web), len(liaison)),
+        f"Fusion suspecte : {len(full)} (max attendu {min(len(erp), len(web), len(liaison))})",
+    )
+    _check(full["sku"].is_unique, "Fusion : doublons sku détectés")
 
-    # ====================================================================
-    # 4. Classification + test
-    # ====================================================================
-    logger.info("\n[4/6] Classification millesimes vs ordinaires + test")
-    classified = classify_wines(full)  # Z-score 1.96 par defaut (cible Stephane)
-    test_classification_coherente(classified)
+    # --- 4. Classification + contrôles structurels --------------------------
+    logger.info("[4/6] Classification millésimés vs ordinaires (Z-score > 1.96)")
+    classified = classify_wines(full)
+    counts = classified["segment"].value_counts()
+    n_premium = int(counts.get("premium", 0))
+    n_ordinary = int(counts.get("ordinary", 0))
+    # Invariants : chaque produit est dans exactement 1 segment + les 2
+    # segments sont non vides (sinon la méthode Z-score est cassée).
+    _check(
+        n_premium + n_ordinary == len(classified),
+        f"Somme des segments != total ({n_premium}+{n_ordinary}!={len(classified)})",
+    )
+    _check(
+        n_premium > 0 and n_ordinary > 0,
+        f"Classification dégénérée : {n_premium} premium / {n_ordinary} ordinary",
+    )
+    # Invariant méthode Z-score : la moyenne des prix premium > moyenne ordinary.
+    mean_premium = classified.loc[classified["segment"] == "premium", "price"].mean()
+    mean_ordinary = classified.loc[classified["segment"] == "ordinary", "price"].mean()
+    _check(
+        mean_premium > mean_ordinary,
+        f"Prix moyen premium ({mean_premium:.2f}) <= ordinary ({mean_ordinary:.2f})",
+    )
+    logger.info("%d millésimés, %d ordinaires", n_premium, n_ordinary)
 
-    # ====================================================================
-    # 5. Calcul CA + test
-    # ====================================================================
-    logger.info("\n[5/6] Calcul du CA + test")
-    test_ca_total(classified)
+    # --- 5. Calcul CA + contrôle structurel --------------------------------
+    logger.info("[5/6] Calcul du CA")
     ca_total = total_revenue(classified)
+    # Invariant : le CA doit être strictement positif (sinon données absurdes).
+    _check(ca_total > 0, f"CA total invalide : {ca_total:.2f} EUR")
+    # Invariant comptable : somme des CA par segment = CA total (à 1 centime près).
+    ca_premium = (
+        classified.loc[classified["segment"] == "premium", ["price", "total_sales"]]
+        .prod(axis=1).sum()
+    )
+    ca_ordinary = (
+        classified.loc[classified["segment"] == "ordinary", ["price", "total_sales"]]
+        .prod(axis=1).sum()
+    )
+    _check(
+        abs((ca_premium + ca_ordinary) - ca_total) < 0.01,
+        f"Incohérence CA : premium({ca_premium:.2f}) + ordinary({ca_ordinary:.2f}) != total({ca_total:.2f})",
+    )
     summary = revenue_summary(classified)
-    logger.info("Resume CA :\n%s", summary.to_string(index=False))
+    logger.info("CA total = %.2f EUR\n%s", ca_total, summary.to_string(index=False))
 
-    # ====================================================================
-    # 6. Persistance DuckDB + Rapport Excel
-    # ====================================================================
-    # On commence par DuckDB (la persistance "long terme"). Si elle echoue,
-    # write_table() ecrit deja un CSV de secours et leve DuckDBUnavailable.
-    # On catch ici pour CONTINUER quand meme avec le rapport Excel : meme
-    # sans DuckDB, Stephane recevra son rapport mensuel.
-    logger.info("\n[6/6] Persistance DuckDB + rapport Excel")
+    # --- 6. Persistance DuckDB + rapport Excel -----------------------------
+    # DuckDB = persistance long terme. Excel = livrable principal pour
+    # Stéphane. Si DuckDB tombe, write_table() écrit déjà un CSV de
+    # secours -> on capte l'exception et on continue jusqu'au rapport.
+    logger.info("[6/6] Persistance DuckDB + rapport Excel")
     duckdb_ok = True
     try:
-        # `with` garantit que la connexion sera fermee meme si une
-        # exception est levee dans le bloc.
         with get_connection() as conn:
             write_table(erp, "erp_clean", conn=conn)
             write_table(web, "web_clean", conn=conn)
             write_table(liaison, "liaison_clean", conn=conn)
             write_table(classified, "produits_consolides", conn=conn)
     except DuckDBUnavailable as exc:
-        # Le fallback CSV a deja ete ecrit par write_table().
-        # On loggue le souci mais on poursuit avec le rapport Excel.
         duckdb_ok = False
-        logger.error("DuckDB KO -> fallback CSV deja ecrit. %s", exc)
+        logger.error("DuckDB KO -> fallback CSV déjà écrit. %s", exc)
 
-    # Rapport Excel + 2 CSV : on le fait toujours, meme si DuckDB a plante.
-    # C'est le livrable principal pour Stephane et Laurent.
     paths = generate_all_reports(classified)
 
-    # ====================================================================
-    # Resume final
-    # ====================================================================
+    # --- Résumé final ------------------------------------------------------
     elapsed = (datetime.now() - started_at).total_seconds()
-    logger.info("\n%s", "=" * 70)
+    logger.info("=" * 70)
     logger.info("Pipeline OK en %.1fs", elapsed)
     logger.info("Rapport Excel       : %s", paths["excel"])
-    logger.info("CSV vins millesimes : %s", paths["csv_millesimes"])
+    logger.info("CSV vins millésimés : %s", paths["csv_millesimes"])
     logger.info("CSV vins ordinaires : %s", paths["csv_ordinaires"])
-    logger.info("DuckDB persiste     : %s", "oui" if duckdb_ok else "non (fallback CSV)")
+    logger.info("DuckDB persisté     : %s", "oui" if duckdb_ok else "non (fallback CSV)")
     logger.info("=" * 70)
 
     return {
@@ -273,8 +181,8 @@ def run() -> dict:
         "duration_s": elapsed,
         "ca_total": ca_total,
         "nb_produits": len(classified),
-        "nb_premium": int((classified["segment"] == "premium").sum()),
-        "nb_ordinary": int((classified["segment"] == "ordinary").sum()),
+        "nb_premium": n_premium,
+        "nb_ordinary": n_ordinary,
         "duckdb_persisted": duckdb_ok,
         "excel_path": str(paths["excel"]),
         "csv_millesimes_path": str(paths["csv_millesimes"]),
@@ -283,9 +191,7 @@ def run() -> dict:
 
 
 if __name__ == "__main__":
-    # Configuration logging :
-    #   - niveau INFO : on voit toutes les etapes (DEBUG serait trop verbeux).
-    #   - format avec timestamp : utile pour mesurer la duree de chaque etape.
+    # Logging avec timestamps : utile pour voir combien dure chaque étape.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",

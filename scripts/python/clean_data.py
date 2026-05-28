@@ -1,37 +1,19 @@
-"""Nettoyage des donnees BottleNeck.
+"""Nettoyage des données BottleNeck (étape 2 du pipeline).
 
-----------------------------------------------------------------------------
-ROLE DE CE MODULE :
-    2e etape du pipeline. On prend les DataFrames bruts d'extract_files
-    et on applique les regles metier de Stephane (Data Analyst).
+Règles métier de Stéphane et cibles volumétriques :
 
-CIBLES VOLUMETRIQUES (validees par Stephane sur le dataset reel) :
+    ERP     : dédup sur product_id                  -> 825 lignes
+    LIAISON : dédup sur product_id (NaN conservés)  -> 825 lignes
+    WEB     : 2 étapes
+              1) drop sku NaN                       -> 1 428 lignes
+              2) dédup sur sku, priorité 'product'  ->   714 lignes
 
-    ERP        : pas de nettoyage particulier, juste un dedup sur product_id.
-                 Cible : 825 lignes.
-
-    LIAISON    : pas de nettoyage particulier, juste un dedup sur product_id.
-                 Les eventuels id_web NaN sont CONSERVES a ce stade : ils
-                 seront filtres naturellement par la jointure inner avec WEB
-                 dans join_data.py.
-                 Cible : 825 lignes.
-
-    WEB        : nettoyage en 2 etapes (logique de Stephane) :
-                    1) drop sku NaN          : 1 513 -> 1 428 lignes.
-                    2) dedup sur sku, en gardant la ligne post_type='product'
-                       si un sku apparait a la fois en 'product' et
-                       en 'attachment'       : 1 428 -> 714 lignes.
-
-POURQUOI 2 ETAPES POUR WEB :
+Pourquoi 2 étapes pour WEB ?
     L'export WooCommerce contient les fiches produits (post_type='product')
-    ET les images attachees (post_type='attachment'). Les attachments
-    "heritent" parfois du sku de leur produit parent. Un dedup naif perdrait
-    la fiche produit si l'attachment apparait avant. D'ou le tri par
-    `post_type=='product' first` avant le drop_duplicates.
-
-    On expose `count_web_after_cleaning()` pour permettre au pipeline de
-    verifier la cible intermediaire 1428 sans relancer toute l'etape 2.
-----------------------------------------------------------------------------
+    ET les images attachées (post_type='attachment') qui héritent parfois
+    du sku de leur produit parent. Un dédup naïf perdrait la fiche produit
+    si l'attachment apparaît avant. On trie donc par post_type='product'
+    en tête AVANT de dédupliquer.
 """
 
 import logging
@@ -42,172 +24,137 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _strip_strings(df: pd.DataFrame) -> pd.DataFrame:
-    """Retire les espaces de debut/fin sur les colonnes texte.
+def _strip_strings(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise les colonnes texte : strip + espaces multiples -> 1 espace.
 
-    DETAIL :
-        - select_dtypes(include=["object", "string"]) : on cible UNIQUEMENT
-          les colonnes texte (les colonnes numeriques restent intactes).
-        - astype("string") : on convertit en pandas.StringDtype pour pouvoir
-          utiliser .str.strip() / .str.replace() proprement, meme s'il y a
-          des NaN dans la colonne.
-        - .str.strip()  : retire les espaces de debut et de fin.
-        - .str.replace(r"\\s+", " ", regex=True) : remplace toute sequence
-          d'espaces multiples (ou tabulations) par un espace unique.
-
-    POURQUOI :
-        Les exports Excel contiennent souvent des espaces parasites
-        ("  Vin Rouge ", "Vin\\trouge"). Sans normalisation, deux noms qui
-        paraissent identiques a l'oeil seraient consideres comme distincts
-        par pandas (ex: lors d'un dedup ou d'un merge).
+    Les exports Excel contiennent souvent des espaces parasites
+    ('  Vin Rouge ', 'Vin\\trouge'). Sans normalisation, deux noms
+    identiques à l'œil seraient vus comme distincts (dédup, merge).
     """
-    out = df.copy()
-    # `include=["object", "string"]` evite le Pandas4Warning sur 'object' seul
-    # (a partir de pandas 4, les types 'string' ne seront plus inclus
-    # automatiquement quand on demande 'object').
-    text_cols = out.select_dtypes(include=["object", "string"]).columns
-    for col in text_cols:
-        out[col] = (
-            out[col]
+    stripped_df = raw_df.copy()
+    text_columns = stripped_df.select_dtypes(include=["object", "string"]).columns
+    for col in text_columns:
+        stripped_df[col] = (
+            stripped_df[col]
             .astype("string")
             .str.strip()
             .str.replace(r"\s+", " ", regex=True)
         )
-    return out
+    return stripped_df
+
+
+def _drop_duplicates_with_log(
+    input_df: pd.DataFrame, source: str, key: str,
+) -> pd.DataFrame:
+    """Dédup sur `key` + log si on a effectivement retiré des lignes."""
+    rows_before = len(input_df)
+    deduplicated_df = input_df.drop_duplicates(subset=key, keep="first")
+    if rows_before != len(deduplicated_df):
+        logger.warning(
+            "%s : %d doublon(s) %s retiré(s)",
+            source, rows_before - len(deduplicated_df), key,
+        )
+    return deduplicated_df
 
 
 # --- ERP --------------------------------------------------------------------
 
 
-def clean_erp(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoyage du fichier ERP.
+def clean_erp(erp_raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoyage du fichier ERP. Cible : 825 lignes.
 
-    Etapes :
-        1) Strip des chaines (espaces parasites).
-        2) Conversions numeriques de `price` et `stock_quantity` :
-           - to_numeric(errors='coerce') tente de convertir, et met NaN
-             pour les valeurs non convertibles (ex: "N/A", " ", "n.c.").
-           - On NE fait PAS fillna(0) ici : un prix manquant est une donnee
-             metier importante, on prefere garder NaN pour le detecter aval.
-        3) drop_duplicates(subset='product_id', keep='first') :
-           si un product_id apparait plusieurs fois, on garde la 1re ligne.
-
-    Cible : 825 lignes.
+    - Strip des chaînes.
+    - to_numeric(errors='coerce') sur price et stock_quantity : convertit
+      en nombre, met NaN si non convertible (ex: "N/A", "n.c.").
+      On NE remplit PAS les NaN par 0 ici : un prix manquant est une info
+      métier qu'on veut détecter en aval.
+    - Dédup sur product_id.
     """
-    out = _strip_strings(df)
-
-    # to_numeric(errors='coerce') :
-    #   - convertit "10.5" -> 10.5
-    #   - convertit "N/A" -> NaN (au lieu de planter avec une exception)
-    out["price"] = pd.to_numeric(out["price"], errors="coerce")
-    out["stock_quantity"] = pd.to_numeric(out["stock_quantity"], errors="coerce")
-
-    # Dedup avec un log si on en retire (utile pour le journal de bord).
-    before = len(out)
-    out = out.drop_duplicates(subset="product_id", keep="first")
-    if before != len(out):
-        logger.warning("ERP : %d doublon(s) product_id retire(s)", before - len(out))
-
-    logger.info("ERP nettoye : %d lignes (cible : 825)", len(out))
-    # reset_index(drop=True) : reindex 0..N-1 et abandonne l'ancien index.
-    # `drop=True` evite que l'ancien index ne devienne une colonne 'index'.
-    return out.reset_index(drop=True)
+    erp_clean_df = _strip_strings(erp_raw_df)
+    erp_clean_df["price"] = pd.to_numeric(erp_clean_df["price"], errors="coerce")
+    erp_clean_df["stock_quantity"] = pd.to_numeric(
+        erp_clean_df["stock_quantity"], errors="coerce",
+    )
+    erp_clean_df = _drop_duplicates_with_log(erp_clean_df, "ERP", "product_id")
+    logger.info("ERP nettoyé : %d lignes (cible : 825)", len(erp_clean_df))
+    return erp_clean_df.reset_index(drop=True)
 
 
 # --- WEB --------------------------------------------------------------------
 
 
-def clean_web(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoyage + dedoublonnage du fichier WEB selon la logique de Stephane.
+def clean_web(web_raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoyage + dédup du fichier WEB (logique de Stéphane).
 
-    Voir le docstring du module pour le detail metier.
+    Étape 1 : drop sku NaN          -> ~1 428 lignes
+    Étape 2 : dédup sku, priorité   -> ~  714 lignes
+              post_type='product'
 
-    Returns:
-        DataFrame final (~714 lignes apres les 2 etapes).
+    Retourne le DataFrame final (~714 lignes).
     """
-    out = _strip_strings(df)
+    web_clean_df = _strip_strings(web_raw_df)
 
-    # ====================================================================
-    # ETAPE 1 - NETTOYAGE : on drop les lignes sans sku
-    # ====================================================================
-    # dropna(subset=['sku']) : retire les lignes ou la colonne sku est NaN.
-    # On cible explicitement 'sku' parce qu'on accepte des NaN ailleurs
-    # (ex: post_excerpt vide est legitime).
-    before = len(out)
-    out = out.dropna(subset=["sku"])
+    # Étape 1 : on retire les lignes sans sku. On cible explicitement 'sku'
+    # parce que des NaN ailleurs sont légitimes (post_excerpt vide, etc.).
+    rows_before = len(web_clean_df)
+    web_clean_df = web_clean_df.dropna(subset=["sku"])
     logger.info(
-        "WEB nettoyage (drop sku NaN) : %d -> %d lignes (cible : 1428)",
-        before, len(out),
+        "WEB drop sku NaN : %d -> %d lignes (cible : 1428)",
+        rows_before, len(web_clean_df),
     )
 
-    # ====================================================================
-    # ETAPE 2 - DEDOUBLONNAGE : dedup sku avec priorite post_type='product'
-    # ====================================================================
-    # Astuce : on cree une colonne temporaire `_priority` qui vaut 1 pour
-    # les lignes 'product' et 0 pour les autres. En triant DECROISSANT sur
-    # cette colonne, les 'product' passent devant les 'attachment'.
-    # Ensuite drop_duplicates(keep='first') garde la 1re occurrence -> on
-    # conserve forcement le 'product' quand il y a le choix.
-    out["sku"] = out["sku"].astype(str).str.strip()
-    out["_priority"] = (out["post_type"] == "product").astype(int)
-    out = (
-        out.sort_values("_priority", ascending=False)  # 'product' d'abord
-        .drop_duplicates(subset="sku", keep="first")    # 1 ligne par sku
-        .drop(columns="_priority")                      # menage : on retire la colonne tempo
+    # Étape 2 : dédup en gardant en priorité les lignes post_type='product'.
+    # Astuce : on crée une colonne `_priority` (1 pour 'product', 0 sinon),
+    # on trie DESC dessus -> les 'product' passent devant -> drop_duplicates
+    # avec keep='first' conserve forcément le 'product' s'il existe.
+    web_clean_df["sku"] = web_clean_df["sku"].astype(str).str.strip()
+    web_clean_df["_priority"] = (web_clean_df["post_type"] == "product").astype(int)
+    web_clean_df = (
+        web_clean_df.sort_values("_priority", ascending=False)
+        .drop_duplicates(subset="sku", keep="first")
+        .drop(columns="_priority")
     )
-    logger.info("WEB dedoublonnage (sku) : %d lignes (cible : 714)", len(out))
+    logger.info("WEB dédup sku : %d lignes (cible : 714)", len(web_clean_df))
 
-    # Conversion numerique pour la suite (calcul du CA = price * total_sales).
-    # fillna(0) ici est legitime : un produit sans vente -> 0 vente, pas NaN.
-    out["total_sales"] = pd.to_numeric(out["total_sales"], errors="coerce").fillna(0)
+    # total_sales numérique pour le calcul du CA aval. fillna(0) légitime
+    # ici : un produit sans vente -> 0 vente (pas une absence d'info).
+    web_clean_df["total_sales"] = pd.to_numeric(
+        web_clean_df["total_sales"], errors="coerce",
+    ).fillna(0)
 
-    return out.reset_index(drop=True)
+    return web_clean_df.reset_index(drop=True)
 
 
-def count_web_after_cleaning(df: pd.DataFrame) -> int:
-    """Compteur intermediaire WEB apres l'etape 1 uniquement (drop sku NaN).
+def count_web_after_cleaning(web_raw_df: pd.DataFrame) -> int:
+    """Compteur intermédiaire WEB après l'étape 1 seule (drop sku NaN).
 
-    Pourquoi cette fonction separee ?
-        Pour permettre au pipeline d'afficher le compteur 1428 (cible
-        intermediaire de Stephane) sans avoir a relancer tout `clean_web`.
-        C'est aussi pratique pour les tests : on peut tester etape 1
-        independamment d'etape 2.
-
+    Permet au pipeline de contrôler la cible 1428 sans relancer clean_web.
     Cible : 1428 lignes.
     """
-    return len(df.dropna(subset=["sku"]))
+    return len(web_raw_df.dropna(subset=["sku"]))
 
 
 # --- LIAISON ----------------------------------------------------------------
 
 
-def clean_liaison(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoyage de la table de liaison.
+def clean_liaison(liaison_raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoyage de la table de liaison. Cible : 825 lignes.
 
-    Logique de Stephane : juste un dedoublonnage sur product_id.
-
-    POINT IMPORTANT : les id_web NaN sont CONSERVES a ce stade.
-        Pourquoi ? Parce que la jointure aval avec WEB est un INNER JOIN.
-        Les lignes sans id_web seront naturellement filtrees a ce moment-la.
-        Si on les droppait ici, on perdrait l'info "X produits ERP n'ont
-        pas de pendant Web" (utile pour `report_orphans`).
-
-    Cible : 825 lignes.
+    Point important : les id_web NaN sont CONSERVÉS à ce stade.
+    La jointure inner avec WEB les filtrera naturellement, et on garde
+    ainsi l'info "X produits ERP n'ont pas de pendant Web" (cf. report_orphans).
     """
-    out = _strip_strings(df)
+    liaison_clean_df = _strip_strings(liaison_raw_df)
 
-    # Cast id_web en str pour homogeneiser avec la colonne sku de WEB.
-    # Important : les NaN deviennent la chaine 'nan' apres astype(str).
-    # Cela ne pose pas probleme car la jointure inner les filtrera.
-    out["id_web"] = out["id_web"].astype(str).str.strip()
+    # Cast id_web en str pour homogénéiser avec sku de WEB (les NaN
+    # deviennent 'nan' en str — pas un souci, la jointure inner les vire).
+    liaison_clean_df["id_web"] = liaison_clean_df["id_web"].astype(str).str.strip()
 
-    before = len(out)
-    out = out.drop_duplicates(subset="product_id", keep="first")
-    if before != len(out):
-        logger.warning("LIAISON : %d doublon(s) product_id retire(s)", before - len(out))
-
-    logger.info("LIAISON nettoye : %d lignes (cible : 825)", len(out))
-    return out.reset_index(drop=True)
+    liaison_clean_df = _drop_duplicates_with_log(
+        liaison_clean_df, "LIAISON", "product_id",
+    )
+    logger.info("LIAISON nettoyé : %d lignes (cible : 825)", len(liaison_clean_df))
+    return liaison_clean_df.reset_index(drop=True)
 
 
 if __name__ == "__main__":
@@ -217,13 +164,16 @@ if __name__ == "__main__":
     from scripts.python.extract_files import read_bottleneck_sources
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
-    src = read_bottleneck_sources()
-    erp = clean_erp(src["erp"])
-    web = clean_web(src["web"])
-    liaison = clean_liaison(src["liaison"])
+    bottleneck_sources = read_bottleneck_sources()
+    erp_clean_df = clean_erp(bottleneck_sources["erp"])
+    web_clean_df = clean_web(bottleneck_sources["web"])
+    liaison_clean_df = clean_liaison(bottleneck_sources["liaison"])
 
-    print("\n=== Cibles attendues par Stephane ===")
-    print(f"ERP          : {len(erp):>5} lignes  (cible : 825)")
-    print(f"LIAISON      : {len(liaison):>5} lignes  (cible : 825)")
-    print(f"WEB cleaning : {count_web_after_cleaning(src['web']):>5} lignes  (cible : 1428)")
-    print(f"WEB dedup    : {len(web):>5} lignes  (cible : 714)")
+    print("\n=== Cibles attendues par Stéphane ===")
+    print(f"ERP          : {len(erp_clean_df):>5} lignes  (cible : 825)")
+    print(f"LIAISON      : {len(liaison_clean_df):>5} lignes  (cible : 825)")
+    print(
+        f"WEB cleaning : "
+        f"{count_web_after_cleaning(bottleneck_sources['web']):>5} lignes  (cible : 1428)"
+    )
+    print(f"WEB dédup    : {len(web_clean_df):>5} lignes  (cible : 714)")
