@@ -120,8 +120,9 @@ J'ai testé plusieurs méthodes de classification avant de retenir le z-score :
 Le **z-score à 1.96** correspond au seuil statistique classique de l'intervalle
 de confiance à 95% sur une distribution normale. C'est la méthode enseignée
 dans le parcours OpenClassrooms et celle qui retombe pile sur les 30 vins
-identifiés par Stéphane. Méthode retenue par défaut, IQR conservée comme
-alternative via le paramètre `method='iqr'`.
+identifiés par Stéphane. **Méthode finalement retenue.** Le code IQR initial
+a été retiré pour ne pas embarquer du code mort ; la flexibilité est conservée
+via le paramètre `threshold` de `classify_wines` (qui accepte 2.0, 2.5, etc.).
 
 Seuils calculés sur le dataset :
 - moyenne prix : 32,49 €
@@ -265,8 +266,13 @@ Comprendre la décomposition de Stéphane était essentiel pour les tests interm
 J'ai d'abord implémenté la méthode IQR (boxplot) qui donnait 32 vins. La cible
 de 30 m'a fait creuser et tester d'autres méthodes statistiques. Le z-score
 à 1.96 (seuil 95%) tombe pile, et c'est aussi la méthode classique enseignée
-dans la formation OpenClassrooms. Les deux méthodes sont conservées dans
-`identify_wines.py` via le paramètre `method`.
+dans la formation OpenClassrooms.
+
+J'ai initialement gardé les deux méthodes dans `identify_wines.py` via un
+paramètre `method`, puis **j'ai retiré le code IQR** lors d'une passe de
+simplification : embarquer une branche conditionnelle pour une méthode
+non utilisée alourdit le code sans valeur ajoutée. La flexibilité reste
+préservée via le paramètre `threshold` qui accepte 2.0, 2.5, etc.
 
 ### Test du fallback CSV
 Tester la résilience à une panne DuckDB sans réellement faire planter DuckDB
