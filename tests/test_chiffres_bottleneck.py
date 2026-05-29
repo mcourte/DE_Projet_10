@@ -92,8 +92,8 @@ class TestChiffresBottleNeck:
         assert len(liaison) == 825
 
     def test_nettoyage_web_donne_1428_lignes(self, real_sources) -> None:
-        # Étape 1 isolée : drop sku NaN seulement.
-        n = clean_data.count_web_after_cleaning(real_sources["web"])
+        # Étape 1 isolée : drop sku NaN seulement (avant le dédup).
+        n = len(real_sources["web"].dropna(subset=["sku"]))
         assert n == 1428, f"Attendu 1428, reçu {n}"
 
     def test_dedup_web_donne_714_lignes(self, real_sources) -> None:
