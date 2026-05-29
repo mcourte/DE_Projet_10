@@ -28,13 +28,10 @@ from scripts.python.identify_wines import split_premium_ordinary
 
 logger = logging.getLogger(__name__)
 
-# Dossier de sortie centralisé : si on veut déplacer les livrables,
-# on touche à un seul endroit.
+# Dossier de sortie centralisé pour tous les rapports générés. 
 PROCESSED_DIR = Path("data/processed")
 
 # Colonnes conservées dans les onglets et CSV détaillés (ordre voulu).
-# Toutes ne sont pas forcément présentes (ex: `segment_threshold` absent
-# dans les fixtures de test) -> on filtre à l'usage.
 _DETAIL_COLUMNS = (
     "sku",
     "product_id",
@@ -104,14 +101,15 @@ def generate_excel_report(
     premium_df, ordinary_df = _prepare_segments(classified_products_df)
 
     # `with pd.ExcelWriter(...)` : ferme le fichier même si exception.
-    logger.info("Écriture du rapport Excel : %s", output_path)
+    logger.info(f"Écriture du rapport Excel : {output_path}")
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         revenue_by_product_df.to_excel(writer, sheet_name="CA_par_produit", index=False)
         ca_total_kpi_df.to_excel(writer, sheet_name="CA_total", index=False)
         premium_df.to_excel(writer, sheet_name="Vins_premium", index=False)
         ordinary_df.to_excel(writer, sheet_name="Vins_ordinaires", index=False)
 
-    logger.info("Rapport écrit (%d Ko)", output_path.stat().st_size // 1024)
+    taille_ko = output_path.stat().st_size // 1024
+    logger.info(f"Rapport écrit ({taille_ko} Ko)")
     return output_path
 
 
@@ -144,12 +142,8 @@ def export_wines_csv(
     premium_df.to_csv(millesimes_path, sep=";", index=False, encoding="utf-8-sig")
     ordinary_df.to_csv(ordinaires_path, sep=";", index=False, encoding="utf-8-sig")
 
-    logger.info(
-        "CSV millésimes écrit : %s (%d lignes)", millesimes_path, len(premium_df),
-    )
-    logger.info(
-        "CSV ordinaires écrit : %s (%d lignes)", ordinaires_path, len(ordinary_df),
-    )
+    logger.info(f"CSV millésimes écrit : {millesimes_path} ({len(premium_df)} lignes)")
+    logger.info(f"CSV ordinaires écrit : {ordinaires_path} ({len(ordinary_df)} lignes)")
     return millesimes_path, ordinaires_path
 
 

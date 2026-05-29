@@ -99,7 +99,7 @@ def clean_web(web_raw_df: pd.DataFrame) -> pd.DataFrame:
     rows_before = len(web_clean_df)
     web_clean_df = web_clean_df.dropna(subset=["sku"])
     logger.info(
-        "WEB drop sku NaN : %d -> %d lignes (cible : 1428)",
+        "WEB drop sku NaN : %d -> %d lignes",
         rows_before, len(web_clean_df),
     )
 
@@ -114,7 +114,7 @@ def clean_web(web_raw_df: pd.DataFrame) -> pd.DataFrame:
         .drop_duplicates(subset="sku", keep="first")
         .drop(columns="_priority")
     )
-    logger.info("WEB dédup sku : %d lignes (cible : 714)", len(web_clean_df))
+    logger.info("WEB dédup sku : %d lignes ", len(web_clean_df))
 
     # total_sales numérique pour le calcul du CA aval. fillna(0) légitime
     # ici : un produit sans vente -> 0 vente (pas une absence d'info).
@@ -123,15 +123,6 @@ def clean_web(web_raw_df: pd.DataFrame) -> pd.DataFrame:
     ).fillna(0)
 
     return web_clean_df.reset_index(drop=True)
-
-
-def count_web_after_cleaning(web_raw_df: pd.DataFrame) -> int:
-    """Compteur intermédiaire WEB après l'étape 1 seule (drop sku NaN).
-
-    Permet au pipeline de contrôler la cible 1428 sans relancer clean_web.
-    Cible : 1428 lignes.
-    """
-    return len(web_raw_df.dropna(subset=["sku"]))
 
 
 # --- LIAISON ----------------------------------------------------------------
@@ -169,11 +160,11 @@ if __name__ == "__main__":
     web_clean_df = clean_web(bottleneck_sources["web"])
     liaison_clean_df = clean_liaison(bottleneck_sources["liaison"])
 
+    # Compteur intermédiaire WEB (après drop sku NaN, avant dédup).
+    n_web_intermediaire = len(bottleneck_sources["web"].dropna(subset=["sku"]))
+
     print("\n=== Cibles attendues par Stéphane ===")
     print(f"ERP          : {len(erp_clean_df):>5} lignes  (cible : 825)")
     print(f"LIAISON      : {len(liaison_clean_df):>5} lignes  (cible : 825)")
-    print(
-        f"WEB cleaning : "
-        f"{count_web_after_cleaning(bottleneck_sources['web']):>5} lignes  (cible : 1428)"
-    )
+    print(f"WEB cleaning : {n_web_intermediaire:>5} lignes  (cible : 1428)")
     print(f"WEB dédup    : {len(web_clean_df):>5} lignes  (cible : 714)")

@@ -30,7 +30,7 @@ from scripts.python.extract_files import read_bottleneck_sources  # noqa: E402
 from scripts.python.generate_reports import generate_all_reports  # noqa: E402
 from scripts.python.identify_wines import classify_wines  # noqa: E402
 from scripts.python.join_data import join_sources  # noqa: E402
-from scripts.python.load_to_duckdb import DuckDBUnavailable, get_connection, write_table  # noqa: E402
+from scripts.python.load_to_duckdb import get_connection, write_table  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def run() -> dict:
     """Lance le pipeline complet et renvoie un résumé (lu par Kestra)."""
     started_at = datetime.now()
     logger.info("=" * 70)
-    logger.info("PIPELINE BOTTLENECK - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info(f"PIPELINE BOTTLENECK - {started_at.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 70)
 
     # --- 1. Extraction ------------------------------------------------------
@@ -89,7 +89,7 @@ def run() -> dict:
         len(web) > 0 and web["sku"].is_unique,
         f"WEB dédup invalide : {len(web)} lignes ou doublons sku",
     )
-    logger.info("ERP=%d, LIAISON=%d, WEB=%d", len(erp), len(liaison), len(web))
+    logger.info(f"ERP={len(erp)}, LIAISON={len(liaison)}, WEB={len(web)}")
 
     # --- 3. Jointure + contrôle structurel ---------------------------------
     logger.info("[3/6] Jointure ERP ⟕ LIAISON ⟕ WEB")
@@ -125,7 +125,7 @@ def run() -> dict:
         mean_premium > mean_ordinary,
         f"Prix moyen premium ({mean_premium:.2f}) <= ordinary ({mean_ordinary:.2f})",
     )
-    logger.info("%d millésimés, %d ordinaires", n_premium, n_ordinary)
+    logger.info(f"{n_premium} millésimés, {n_ordinary} ordinaires")
 
     # --- 5. Calcul CA + contrôle structurel --------------------------------
     logger.info("[5/6] Calcul du CA")
@@ -146,7 +146,7 @@ def run() -> dict:
         f"Incohérence CA : premium({ca_premium:.2f}) + ordinary({ca_ordinary:.2f}) != total({ca_total:.2f})",
     )
     summary = revenue_summary(classified)
-    logger.info("CA total = %.2f EUR\n%s", ca_total, summary.to_string(index=False))
+    logger.info(f"CA total = {ca_total:.2f} EUR\n{summary.to_string(index=False)}")
 
     # --- 6. Persistance DuckDB + rapport Excel -----------------------------
     # DuckDB = persistance long terme. Excel = livrable principal pour
@@ -160,20 +160,22 @@ def run() -> dict:
             write_table(web, "web_clean", conn=conn)
             write_table(liaison, "liaison_clean", conn=conn)
             write_table(classified, "produits_consolides", conn=conn)
-    except DuckDBUnavailable as exc:
+    except RuntimeError as exc:
+        # write_table a déjà écrit le CSV de secours en interne.
+        # On note que DuckDB est KO et on continue le rapport Excel.
         duckdb_ok = False
-        logger.error("DuckDB KO -> fallback CSV déjà écrit. %s", exc)
+        logger.error(f"DuckDB KO -> fallback CSV déjà écrit. {exc}")
 
     paths = generate_all_reports(classified)
 
     # --- Résumé final ------------------------------------------------------
     elapsed = (datetime.now() - started_at).total_seconds()
     logger.info("=" * 70)
-    logger.info("Pipeline OK en %.1fs", elapsed)
-    logger.info("Rapport Excel       : %s", paths["excel"])
-    logger.info("CSV vins millésimés : %s", paths["csv_millesimes"])
-    logger.info("CSV vins ordinaires : %s", paths["csv_ordinaires"])
-    logger.info("DuckDB persisté     : %s", "oui" if duckdb_ok else "non (fallback CSV)")
+    logger.info(f"Pipeline OK en {elapsed:.1f}s")
+    logger.info(f"Rapport Excel       : {paths['excel']}")
+    logger.info(f"CSV vins millésimés : {paths['csv_millesimes']}")
+    logger.info(f"CSV vins ordinaires : {paths['csv_ordinaires']}")
+    logger.info(f"DuckDB persisté     : {'oui' if duckdb_ok else 'non (fallback CSV)'}")
     logger.info("=" * 70)
 
     return {

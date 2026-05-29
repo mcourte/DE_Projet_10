@@ -57,8 +57,6 @@ def revenue_per_product(
     """
     products_with_revenue = add_revenue_column(products_df, price_column, sales_column)
 
-    # Filtre défensif : évite KeyError si une colonne manque
-    # (cas des fixtures de test sans post_title par exemple).
     available_columns = [
         c for c in (sku_column, title_column, price_column, sales_column, "ca")
         if c in products_with_revenue.columns
@@ -69,7 +67,7 @@ def revenue_per_product(
         .sort_values("ca", ascending=False)
         .reset_index(drop=True)
     )
-    logger.info("CA par produit : %d lignes", len(revenue_by_product_df))
+    logger.info(f"CA par produit : {len(revenue_by_product_df)} lignes")
     return revenue_by_product_df
 
 
@@ -81,7 +79,7 @@ def total_revenue(
     """Retourne le CA total en float"""
     products_with_revenue = add_revenue_column(products_df, price_column, sales_column)
     total_ca = float(products_with_revenue["ca"].sum())
-    logger.info("CA total : %.2f EUR", total_ca)
+    logger.info(f"CA total : {total_ca:.2f} EUR")
     return total_ca
 
 
@@ -92,7 +90,6 @@ def revenue_summary(
     """CA agrégé par segment (premium / ordinary).
 
     Colonnes : segment, nb_produits, ca_segment, part_pct.
-    Utile pour le pitch "les 30 millésimés représentent X % du CA".
 
     Raises:
         ValueError: si la colonne `segment` est manquante.

@@ -7,10 +7,10 @@ Méthode retenue par Stéphane : Z-SCORE SUR LE PRIX.
 Un vin est classé MILLÉSIMÉ si son z-score > 1.96 (= les 2,5 % les
 plus chers, seuil classique du test bilatéral à 5 %). Équivalent à
 `prix > moyenne + 1.96 * écart-type` -> c'est ce qu'on calcule comme
-seuil `upper` dans compute_zscore_thresholds().
+seuil `upper`.
 
 Sur le dataset BottleNeck réel :
-    moyenne ~ 32,49 €   écart-type ~ 32 €   seuil ~ 95 €
+    moyenne ~ 32,49 €   écart-type ~ 32 €   seuil ~ 87 €
     -> 30 vins millésimés / 684 vins ordinaires.
 
 Méthode alternative testée (IQR / Tukey) : voir le journal de bord —
@@ -18,7 +18,7 @@ elle donnait 32 vins, non retenue. Code IQR retiré pour simplifier.
 """
 
 import logging
-from typing import NamedTuple, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -28,32 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Seuil Z-score par défaut = 1,96 (quantile 97,5 % de la loi normale).
 DEFAULT_Z_THRESHOLD = 1.96
-
-
-# NamedTuple = mini-classe immuable avec accès `.attribut`. Plus léger
-# qu'une @dataclass et ça documente bien ce que la fonction renvoie.
-class ZScoreThresholds(NamedTuple):
-    """Seuils calculés par la méthode Z-score."""
-    mean: float
-    std: float
-    threshold: float   # le z-score seuil (typiquement 1.96)
-    upper: float       # = mean + threshold * std (prix limite premium)
-
-
-def compute_zscore_thresholds(
-    prices: pd.Series, threshold: float = DEFAULT_Z_THRESHOLD,
-) -> ZScoreThresholds:
-    """Calcule les seuils Z-score sur une série de prix.
-
-    Outlier haut si prix > mean + threshold * std
-    (équivalent à (prix - mean) / std > threshold).
-    """
-    mean = float(prices.mean())
-    std = float(prices.std())
-    return ZScoreThresholds(
-        mean=mean, std=std, threshold=threshold,
-        upper=mean + threshold * std,
-    )
 
 
 def classify_wines(
@@ -76,7 +50,6 @@ def classify_wines(
     Raises:
         ValueError: si la colonne prix est absente.
     """
-    # Vérif défensive : on échoue tôt et clairement.
     if price_column not in products_df.columns:
         raise ValueError(f"Colonne '{price_column}' introuvable")
 
@@ -84,13 +57,15 @@ def classify_wines(
     # On retire les NaN AVANT le calcul stat (sinon mean/std seraient NaN).
     prices = classified_products_df[price_column].dropna()
 
+    # Calcul du seuil Z-score : un produit est 'premium' si son prix dépasse
+    # mean + threshold × std (équivalent à z-score > threshold).
     z_threshold = threshold if threshold is not None else DEFAULT_Z_THRESHOLD
-    zscore_thresholds = compute_zscore_thresholds(prices, threshold=z_threshold)
-    premium_price_threshold = zscore_thresholds.upper
+    mean_price = float(prices.mean())
+    std_price = float(prices.std())
+    premium_price_threshold = mean_price + z_threshold * std_price
     logger.info(
-        "Seuils Z-score : mean=%.2f std=%.2f z=%.2f -> upper=%.2f",
-        zscore_thresholds.mean, zscore_thresholds.std,
-        zscore_thresholds.threshold, premium_price_threshold,
+        f"Seuils Z-score : mean={mean_price:.2f} std={std_price:.2f} "
+        f"z={z_threshold:.2f} -> upper={premium_price_threshold:.2f}"
     )
 
     # np.where(condition, val_si_vrai, val_si_faux) = un IF vectorisé.
@@ -106,7 +81,7 @@ def classify_wines(
     segment_counts = classified_products_df["segment"].value_counts()
     nb_premium = int(segment_counts.get("premium", 0))
     nb_ordinary = int(segment_counts.get("ordinary", 0))
-    logger.info("Classification Z-score : %d premium / %d ordinary", nb_premium, nb_ordinary)
+    logger.info(f"Classification Z-score : {nb_premium} premium / {nb_ordinary} ordinary")
 
     return classified_products_df
 

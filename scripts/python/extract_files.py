@@ -87,7 +87,7 @@ def read_file(path: Path) -> pd.DataFrame:
     """
     path = Path(path)
     suffix = path.suffix.lower()
-    logger.info("Lecture de %s", path)
+    logger.info(f"Lecture de {path}")
 
     if suffix == ".csv":
         # sep=None + engine='python' : détecte automatiquement , ; ou \t.
@@ -113,7 +113,12 @@ def read_bottleneck_sources(directory: Optional[Path] = None) -> dict:
             message liste TOUS les fichiers manquants d'un coup (plus
             pratique pour debugger qu'un échec un par un).
     """
-    directory = Path(directory) if directory is not None else BOTTLENECK_DIR
+    # Si pas de dossier fourni, on utilise le chemin par défaut.
+    # Sinon, on s'assure que c'est bien un objet Path (et pas juste une str).
+    if directory is None:
+        directory = BOTTLENECK_DIR
+    else:
+        directory = Path(directory)
 
     # Alias 'erp'/'web'/'liaison' : convention utilisée partout aval.
     expected = {
@@ -129,13 +134,15 @@ def read_bottleneck_sources(directory: Optional[Path] = None) -> dict:
             "Fichier(s) BottleNeck manquant(s) :\n  - " + "\n  - ".join(missing)
         )
 
-    # Compréhension de dict = {clé: valeur for ...} en une ligne.
-    sources = {key: read_file(path) for key, path in expected.items()}
+    # On lit chaque fichier et on range le DataFrame sous sa clé.
+    sources = {}
+    for key, path in expected.items():
+        sources[key] = read_file(path)
 
     # Log de volumétrie : repère immédiatement un fichier tronqué ou
     # un mauvais onglet sélectionné (attendu 825, on en lit 12 -> alerte).
     for key, df in sources.items():
-        logger.info("Source '%s' chargée : %d lignes", key, len(df))
+        logger.info(f"Source '{key}' chargée : {len(df)} lignes")
 
     return sources
 
