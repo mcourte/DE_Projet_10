@@ -12,7 +12,7 @@ Stéphane (Data Analyst) chez BottleNeck (e-commerce de vins prestigieux).
 - **openpyxl** — rapport Excel multi-onglets
 - **SQL** — agrégations et tests de qualité
 - **Docker Compose** — runtime Kestra + PostgreSQL
-- **pytest** — 41 tests (structurels + cibles métier)
+- **pytest** — 39 tests (structurels + cibles métier)
 
 ## Sources (dataset BottleNeck)
 
@@ -128,7 +128,7 @@ docker compose up -d
 ### Étape 8 — Vérifier les résultats
 
 ```bash
-# Tous les tests (41)
+# Tous les tests (39)
 python -m pytest tests/ -v
 
 # Uniquement les tests structurels — utilisables chaque mois sur tout dataset
@@ -211,12 +211,12 @@ triggers:
 
 ## Tests pytest
 
-**41 tests** répartis sur **2 fichiers**, organisés en 3 catégories pour
+**39 tests** répartis sur **2 fichiers**, organisés en 3 catégories pour
 permettre une exécution mensuelle sans dépendance aux chiffres POC :
 
 | Fichier | Catégorie | Nb | Description |
 |---|---|---:|---|
-| `tests/test_pipeline.py` | Unitaires | 25 | Logique des fonctions sur fixtures synthétiques |
+| `tests/test_pipeline.py` | Unitaires | 23 | Logique des fonctions sur fixtures synthétiques |
 | `tests/test_pipeline.py` | `@pytest.mark.integration` | 5 | Invariants structurels post-pipeline (pas de doublons, somme cohérente…) — **réutilisables chaque mois** |
 | `tests/test_chiffres_bottleneck.py` | `@pytest.mark.cibles` | 8 | Chiffres exacts de Stéphane sur les fichiers source (825 / 1428 / 714 / 30 / 70568,60 €) |
 | `tests/test_chiffres_bottleneck.py` | `@pytest.mark.cibles` + `integration` | 3 | Chiffres exacts vérifiés dans DuckDB après run |
@@ -224,10 +224,10 @@ permettre une exécution mensuelle sans dépendance aux chiffres POC :
 ### Commandes utiles
 
 ```bash
-# Tous les tests (41)
+# Tous les tests (39)
 python -m pytest tests/ -v
 
-# Mensuel : uniquement structurels (32 tests) — passe quelle que soit la donnée
+# Mensuel : uniquement structurels (28 tests) — passe quelle que soit la donnée
 python -m pytest tests/ -m "not cibles"
 
 # Validation POC : uniquement les chiffres cibles de Stéphane (11 tests)
@@ -300,7 +300,7 @@ DE_Projet_10/
 │           ├── test_types.sql
 │           └── test_plage_dates.sql
 ├── tests/
-│   ├── test_pipeline.py                   ← 32 tests structurels (unitaires + intégration)
+│   ├── test_pipeline.py                   ← 28 tests structurels (unitaires + intégration)
 │   └── test_chiffres_bottleneck.py        ← 11 tests cibles POC (chiffres exacts Stéphane)
 ├── .env.example                           ← gabarit des variables d'environnement
 └── docs/
